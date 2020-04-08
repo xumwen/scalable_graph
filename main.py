@@ -35,7 +35,7 @@ parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet'],
                     help='Choose Spatial-Temporal model', default='stgcn')
 parser.add_argument('-d', "--dataset", choices=["metr", "nyc-bike"],
                     help='Choose dataset', default='metr')
-parser.add_argument('-t', "--gcn-type", choices=['sage', 'graph', 'gat'],
+parser.add_argument('-t', "--gcn-type", choices=['sage', 'graph', 'gat', 'sagela'],
                     help='Choose GCN Conv Type', default='graph')
 parser.add_argument('-part', "--gcn-partition", choices=['cluster', 'sample'],
                     help='Choose GCN partition method',
