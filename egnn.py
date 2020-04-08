@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.nn as PyG
 from torch_geometric.nn.conv import MessagePassing
-from torch_geometric.utils import add_remaining_self_loops
 
 class SAGELA(PyG.SAGEConv):
     def __init__(self, in_channels, out_channels, edge_channels,
