@@ -22,6 +22,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from tgcn import TGCN
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, get_normalized_adj
+from cluster_dataset import ClusterDataset
 
 
 parser = argparse.ArgumentParser(description='Spatial-Temporal-Model')
@@ -191,14 +192,26 @@ class WrapperNet(pl.LightningModule):
             num_nodes=self.hparams.num_nodes, batch_size=batch_size, shuffle=shuffle
         )
         return DataLoader(dataset, batch_size=None)
+    
+    def make_cluster_dataloader(self, X, y, shuffle):
+        # return a data loader based on ClusterGCN
+        dataset = ClusterDataset(
+            X, y, self.edge_index, self.edge_weight,
+            num_nodes=self.hparams.num_nodes, batch_size=batch_size, shuffle=shuffle
+        )
+        return DataLoader(dataset, batch_size=None)
 
     def train_dataloader(self):
         if self.hparams.gcn_partition == 'sample':
             return self.make_sample_dataloader(self.training_input, self.training_target, shuffle=True)
+        elif self.hparams.gcn_partition == 'cluster':
+            return self.make_cluster_dataloader(self.training_input, self.training_target, shuffle=True)
 
     def val_dataloader(self):
         if self.hparams.gcn_partition == 'sample':
             return self.make_sample_dataloader(self.val_input, self.val_target, shuffle=False)
+        elif self.hparams.gcn_partition == 'cluster':
+            return self.make_cluster_dataloader(self.val_input, self.val_target, shuffle=False)
 
     # def test_dataloader(self):
     #     if self.hparams.gcn_partition == 'sample':

@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch_geometric.nn as PyG
 from torch_geometric.nn.conv import MessagePassing
 
+
 class SAGELA(PyG.SAGEConv):
     def __init__(self, in_channels, out_channels, edge_channels,
                  normalize=False, concat=True, bias=True, **kwargs):
@@ -32,7 +33,9 @@ class SAGELA(PyG.SAGEConv):
         return amp_x_j * lamb
 
     def update(self, aggr_out, x):
-        if self.concat:
+        if self.concat and torch.is_tensor(x):
+            aggr_out = torch.cat([x, aggr_out], dim=-1)
+        elif self.concat and (isinstance(x, tuple) or isinstance(x, list)):
             aggr_out = torch.cat([x[1], aggr_out], dim=-1)
 
         aggr_out = torch.matmul(aggr_out, self.weight)
@@ -44,6 +47,26 @@ class SAGELA(PyG.SAGEConv):
             aggr_out = F.normalize(aggr_out, p=2, dim=-1)
 
         return aggr_out
+
+
+class SAGELANetCluster(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(SAGELANetCluster, self).__init__()
+        self.conv = SAGELA(
+            in_channels, out_channels, edge_channels=1, node_dim=1)
+
+    def forward(self, X, g):
+        edge_index = g['edge_index']
+        edge_weight = g['edge_weight']
+        n_id = g['n_id']
+        
+        X = X[:, n_id]
+
+        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+    
+        X = F.leaky_relu(X)
+
+        return X
 
 
 class SAGELANet(nn.Module):
