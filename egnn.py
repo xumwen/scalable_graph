@@ -51,7 +51,7 @@ class SAGELA(PyG.SAGEConv):
 
 class ClusterSAGELANet(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super(SAGELANetCluster, self).__init__()
+        super(ClusterSAGELANet, self).__init__()
         self.conv = SAGELA(
             in_channels, out_channels, edge_channels=1, node_dim=1)
 
