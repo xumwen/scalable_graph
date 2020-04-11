@@ -49,7 +49,7 @@ class SAGELA(PyG.SAGEConv):
         return aggr_out
 
 
-class SAGELANetCluster(nn.Module):
+class ClusterSAGELANet(nn.Module):
     def __init__(self, in_channels, out_channels):
         super(SAGELANetCluster, self).__init__()
         self.conv = SAGELA(
@@ -58,9 +58,6 @@ class SAGELANetCluster(nn.Module):
     def forward(self, X, g):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
-        n_id = g['n_id']
-        
-        X = X[:, n_id]
 
         X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
     
@@ -70,22 +67,19 @@ class SAGELANetCluster(nn.Module):
 
 
 class SAGELANet(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(SAGELANet, self).__init__()
         self.conv1 = SAGELA(
-            in_channels, 16, edge_channels=1, node_dim=1)
+            in_channels, spatial_channels, edge_channels=1, node_dim=1)
         self.conv2 = SAGELA(
-            16, out_channels, edge_channels=1, node_dim=1)
+            spatial_channels, out_channels, edge_channels=1, node_dim=1)
 
     def forward(self, X, g):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
 
         size = g['size']
-        n_id = g['graph_n_id']
         res_n_id = g['res_n_id']
-        
-        X = X[:, n_id]
 
         conv1 = self.conv1(
             (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0])
@@ -123,22 +117,25 @@ class GatedGCN(MessagePassing):
         nn.init.xavier_uniform_(self.u)
         nn.init.xavier_uniform_(self.v)
 
-    def forward(self, x, edge_index, edge_feature, size=None,
-                res_n_id=None):
-        x = torch.matmul(x, self.weight1)
+    def forward(self, x, edge_index, edge_feature, size=None):
+        if torch.is_tensor(x):
+            x = torch.matmul(x, self.weight1)
+        else:
+            x = (None if x[0] is None else torch.matmul(x[0], self.weight1),
+                 None if x[1] is None else torch.matmul(x[1], self.weight1))
+
         edge_emb = torch.matmul(edge_feature, self.weight2)
 
-        return self.propagate(edge_index, size=size, x=x,
-                              edge_emb=edge_emb, res_n_id=res_n_id)
+        return self.propagate(edge_index, size=size, x=x, edge_emb=edge_emb)
 
     def message(self, x_j, edge_emb):
         x_j = torch.matmul(x_j, self.v)
 
         return edge_emb * x_j
 
-    def update(self, aggr_out, x, res_n_id):
-        if res_n_id is not None:
-            x = x[:, res_n_id]
+    def update(self, aggr_out, x):
+        if (isinstance(x, tuple) or isinstance(x, list)):
+            x = x[1]
 
         aggr_out = torch.matmul(x, self.u) + aggr_out
 
@@ -150,28 +147,40 @@ class GatedGCN(MessagePassing):
         return aggr_out
 
 
-class GatedGCNNet(nn.Module):
+class ClusterGatedGCNNet(nn.Module):
     def __init__(self, in_channels, out_channels):
+        super(ClusterGatedGCNNet, self).__init__()
+        self.conv = GatedGCN(
+            in_channels, out_channels, edge_channels=1, node_dim=1)
+
+    def forward(self, X, g):
+        edge_index = g['edge_index']
+        edge_weight = g['edge_weight']
+
+        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+
+        return X
+
+
+class GatedGCNNet(nn.Module):
+    def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(GatedGCNNet, self).__init__()
         self.conv1 = GatedGCN(
-            in_channels, 16, edge_channels=1, node_dim=1)
+            in_channels, spatial_channels, edge_channels=1, node_dim=1)
         self.conv2 = GatedGCN(
-            16, out_channels, edge_channels=1, node_dim=1)
+            spatial_channels, out_channels, edge_channels=1, node_dim=1)
 
     def forward(self, X, g):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
 
         size = g['size']
-        n_id = g['graph_n_id']
         res_n_id = g['res_n_id']
-        
-        X = X[:, n_id]
 
         X = self.conv1(
-            X, edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0], res_n_id=res_n_id[0])
+            (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0])
 
         X = self.conv2(
-            X, edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1], res_n_id=res_n_id[1])
+            (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1])
 
         return X

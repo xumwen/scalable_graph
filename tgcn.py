@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from gcn import SAGENet, GATNet
-from egnn import SAGELANet, SAGELANetCluster, GatedGCNNet
+from egnn import SAGELANet, ClusterSAGELANet, GatedGCNNet, ClusterGatedGCNNet
 from krnn import KRNN
 
 from torch_geometric.data import Data, Batch, DataLoader, NeighborSampler, ClusterData, ClusterLoader
@@ -14,10 +14,13 @@ class GCNBlock(nn.Module):
                  gcn_type, gcn_partition):
         super(GCNBlock, self).__init__()
         if gcn_partition == 'cluster':
-            GCNUnit = {'sagela': SAGELANetCluster}.get(gcn_type)
-        else:
-            GCNUnit = {'sage': SAGENet, 'gat': GATNet, 
-                'sagela': SAGELANet, 'gated': GatedGCNNet}.get(gcn_type)
+            GCNUnit = {'sagela': ClusterSAGELANet, 
+                        'gated': ClusterGatedGCNNet}.get(gcn_type)
+        elif gcn_partition == 'sample':
+            GCNUnit = {'sage': SAGENet, 
+                        'gat': GATNet, 
+                        'sagela': SAGELANet, 
+                        'gated': GatedGCNNet}.get(gcn_type)
         self.gcn = GCNUnit(in_channels=in_channels,
                            out_channels=spatial_channels)
 
