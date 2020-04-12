@@ -23,8 +23,6 @@ class ClusterDataset(IterableDataset):
     def make_graph_cluster(self):
         graph = Data(
             edge_index=self.edge_index, edge_attr=self.edge_weight, 
-
-
             n_id=torch.arange(0, self.num_nodes), num_nodes=self.num_nodes
         )
 
@@ -32,7 +30,7 @@ class ClusterDataset(IterableDataset):
             graph, num_parts=50, recursive=False, save_dir='./data'
         )
 
-        cluster_loader = ClusterLoader(cluster_data, batch_size=5, shuffle=self.shuffle, num_workers=0)
+        cluster_loader = ClusterLoader(cluster_data, batch_size=10, shuffle=self.shuffle, num_workers=0)
 
         return cluster_loader
 
