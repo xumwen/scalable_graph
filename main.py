@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 
 from tgcn import TGCN
+from stgcn import STGCN
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, get_normalized_adj
 from cluster_dataset import ClusterDataset
 
@@ -60,7 +61,7 @@ if torch.cuda.is_available():
 else:
     args.device = torch.device('cpu')
 
-model = TGCN
+model = {'tgcn':TGCN, 'stgcn':STGCN}.get(args.model)
 log_name = args.log_name
 log_dir = args.log_dir
 gpus = args.gpus
