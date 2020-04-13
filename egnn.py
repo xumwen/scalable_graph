@@ -6,6 +6,11 @@ from torch_geometric.nn.conv import MessagePassing
 
 
 class SAGELA(PyG.SAGEConv):
+    """
+    The SAGE-LA operator from the `"GCN-LASE: Towards Adequately 
+    Incorporating Link Attributes in Graph Convolutional Networks" 
+    <https://arxiv.org/abs/1902.09817>`_ paper
+    """
     def __init__(self, in_channels, out_channels, edge_channels,
                  normalize=False, concat=True, bias=True, **kwargs):
         super(SAGELA, self).__init__(in_channels, out_channels, normalize=normalize,
@@ -49,23 +54,6 @@ class SAGELA(PyG.SAGEConv):
         return aggr_out
 
 
-class ClusterSAGELANet(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ClusterSAGELANet, self).__init__()
-        self.conv = SAGELA(
-            in_channels, out_channels, edge_channels=1, node_dim=1)
-
-    def forward(self, X, g):
-        edge_index = g['edge_index']
-        edge_weight = g['edge_weight']
-
-        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
-    
-        X = F.leaky_relu(X)
-
-        return X
-
-
 class SAGELANet(nn.Module):
     def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(SAGELANet, self).__init__()
@@ -94,7 +82,28 @@ class SAGELANet(nn.Module):
         return X
 
 
+class ClusterSAGELANet(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ClusterSAGELANet, self).__init__()
+        self.conv = SAGELA(
+            in_channels, out_channels, edge_channels=1, node_dim=1)
+
+    def forward(self, X, g):
+        edge_index = g['edge_index']
+        edge_weight = g['edge_weight']
+
+        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+    
+        X = F.leaky_relu(X)
+
+        return X
+        
+
 class GatedGCN(MessagePassing):
+    """
+    The GatedGCN operator from the `"Residual Gated Graph ConvNets" 
+    <https://arxiv.org/abs/1711.07553>`_ paper
+    """
     def __init__(self, in_channels, out_channels, edge_channels, 
                  **kwargs):
         super(GatedGCN, self).__init__(aggr='mean', **kwargs)
@@ -147,21 +156,6 @@ class GatedGCN(MessagePassing):
         return aggr_out
 
 
-class ClusterGatedGCNNet(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(ClusterGatedGCNNet, self).__init__()
-        self.conv = GatedGCN(
-            in_channels, out_channels, edge_channels=1, node_dim=1)
-
-    def forward(self, X, g):
-        edge_index = g['edge_index']
-        edge_weight = g['edge_weight']
-
-        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
-
-        return X
-
-
 class GatedGCNNet(nn.Module):
     def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(GatedGCNNet, self).__init__()
@@ -182,5 +176,20 @@ class GatedGCNNet(nn.Module):
 
         X = self.conv2(
             (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1])
+
+        return X
+
+
+class ClusterGatedGCNNet(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ClusterGatedGCNNet, self).__init__()
+        self.conv = GatedGCN(
+            in_channels, out_channels, edge_channels=1, node_dim=1)
+
+    def forward(self, X, g):
+        edge_index = g['edge_index']
+        edge_weight = g['edge_weight']
+
+        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
 
         return X
