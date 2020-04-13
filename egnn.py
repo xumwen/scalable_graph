@@ -74,30 +74,32 @@ class SAGELANet(nn.Module):
     
         X = F.leaky_relu(conv1)
 
-        conv2 = self.conv2(
+        X = self.conv2(
             (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1])
-
-        X = F.leaky_relu(conv2)
 
         return X
 
 
 class ClusterSAGELANet(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(ClusterSAGELANet, self).__init__()
-        self.conv = SAGELA(
-            in_channels, out_channels, edge_channels=1, node_dim=1)
+        self.conv1 = SAGELA(
+            in_channels, spatial_channels, edge_channels=1, node_dim=1)
+        self.conv2 = SAGELA(
+            spatial_channels, out_channels, edge_channels=1, node_dim=1)
 
     def forward(self, X, g):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
 
-        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+        conv1 = self.conv1(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+
+        X = F.leaky_relu(conv1)
     
-        X = F.leaky_relu(X)
+        X = self.conv2(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
 
         return X
-        
+
 
 class GatedGCN(MessagePassing):
     """
@@ -181,15 +183,19 @@ class GatedGCNNet(nn.Module):
 
 
 class ClusterGatedGCNNet(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(ClusterGatedGCNNet, self).__init__()
-        self.conv = GatedGCN(
-            in_channels, out_channels, edge_channels=1, node_dim=1)
+        self.conv1 = GatedGCN(
+            in_channels, spatial_channels, edge_channels=1, node_dim=1)
+        self.conv2 = GatedGCN(
+            spatial_channels, out_channels, edge_channels=1, node_dim=1)
 
     def forward(self, X, g):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
 
-        X = self.conv(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+        X = self.conv1(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+
+        X = self.conv2(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
 
         return X
