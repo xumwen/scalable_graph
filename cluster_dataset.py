@@ -30,7 +30,7 @@ class ClusterDataset(IterableDataset):
             graph, num_parts=50, recursive=False, save_dir='./data'
         )
 
-        cluster_loader = ClusterLoader(cluster_data, batch_size=10, shuffle=True, num_workers=0)
+        cluster_loader = ClusterLoader(cluster_data, batch_size=10, shuffle=self.shuffle, num_workers=0)
 
         return cluster_loader
 
