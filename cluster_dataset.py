@@ -24,7 +24,7 @@ class ClusterDataset(IterableDataset):
         graph = Data(
             edge_index=self.edge_index, edge_attr=self.edge_weight, 
             n_id=torch.arange(0, self.num_nodes), num_nodes=self.num_nodes
-        )
+        ).to('cpu')
 
         cluster_data = ClusterData(
             graph, num_parts=50, recursive=False, save_dir='./data'
