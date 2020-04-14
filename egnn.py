@@ -150,10 +150,10 @@ class GatedGCN(MessagePassing):
 
         aggr_out = torch.matmul(x, self.u) + aggr_out
 
-        bn = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
-        aggr_out = F.relu(bn(aggr_out))
+        # bn = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
+        # aggr_out = bn(aggr_out)
         
-        aggr_out = x + aggr_out
+        aggr_out = x + F.relu(aggr_out)
         
         return aggr_out
 
