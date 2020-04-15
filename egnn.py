@@ -71,8 +71,6 @@ class SAGELANet(nn.Module):
 
         conv1 = self.conv1(
             (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0])
-    
-        X = F.leaky_relu(conv1)
 
         X = self.conv2(
             (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1])
@@ -92,9 +90,7 @@ class ClusterSAGELANet(nn.Module):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
 
-        conv1 = self.conv1(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
-
-        X = F.leaky_relu(conv1)
+        X = self.conv1(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
     
         X = self.conv2(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
 
