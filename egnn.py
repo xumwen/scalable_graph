@@ -184,9 +184,9 @@ class ClusterGatedGCNNet(nn.Module):
     def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(ClusterGatedGCNNet, self).__init__()
         self.conv1 = GatedGCN(
-            in_channels, out_channels, edge_channels=1, node_dim=1)
-        # self.conv2 = GatedGCN(
-        #     spatial_channels, out_channels, edge_channels=1, node_dim=1)
+            in_channels, spatial_channels, edge_channels=1, node_dim=1)
+        self.conv2 = GatedGCN(
+            spatial_channels, out_channels, edge_channels=1, node_dim=1)
 
     def forward(self, X, g):
         edge_index = g['edge_index']
@@ -194,6 +194,6 @@ class ClusterGatedGCNNet(nn.Module):
 
         X = self.conv1(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
 
-        # X = self.conv2(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
+        X = self.conv2(X, edge_index, edge_feature=edge_weight.unsqueeze(-1))
 
         return X
