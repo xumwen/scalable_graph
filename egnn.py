@@ -69,7 +69,7 @@ class SAGELANet(nn.Module):
         size = g['size']
         res_n_id = g['res_n_id']
 
-        conv1 = self.conv1(
+        X = self.conv1(
             (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0])
 
         X = self.conv2(
