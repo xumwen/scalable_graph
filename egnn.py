@@ -153,7 +153,8 @@ class GatedGCN(MessagePassing):
 
         # bn = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
         # aggr_out = bn(aggr_out)
-        aggr_out = self.layer_norm(aggr_out)
+        # aggr_out = self.layer_norm(aggr_out)
+        aggr_out = self.batch_norm(aggr_out)
         
         aggr_out = x + F.relu(aggr_out)
         
