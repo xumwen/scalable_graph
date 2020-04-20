@@ -140,7 +140,11 @@ class MyGATConv(PyG.MessagePassing):
         aggr_out = torch.matmul(x, self.u) + aggr_out
         # aggr_out = self.batch_norm(aggr_out.permute(1, 2, 0))
         # aggr_out = aggr_out.permute(2, 0, 1)
-        aggr_out = self.layer_norm(aggr_out)
+        # aggr_out = self.layer_norm(aggr_out)
+        aggr_out = aggr_out.permute(1, 0, 2)
+        bn = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
+        aggr_out = bn(aggr_out)
+        aggr_out = aggr_out.permute(1, 0, 2)
 
         return x + aggr_out
 
