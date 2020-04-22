@@ -273,9 +273,9 @@ class MyEGNNConv(MessagePassing):
         # mean = aggr_out.mean(dim=[0, 2], keepdim=True)
         # var = aggr_out.var(dim=[0, 2], keepdim=True)
 
-        # # norm4: batchnorm on node and channel 0.257
-        # mean = aggr_out.mean(dim=0, keepdim=True)
-        # var = aggr_out.var(dim=0, keepdim=True)
+        # norm4: batchnorm on node and channel 0.257
+        mean = aggr_out.mean(dim=0, keepdim=True)
+        var = aggr_out.var(dim=0, keepdim=True)
 
         # # norm5: batchnorm on channel
         # mean = aggr_out.mean(dim=[0, 1], keepdim=True)
@@ -285,9 +285,9 @@ class MyEGNNConv(MessagePassing):
         # mean = aggr_out.mean(dim=[1, 2], keepdim=True)
         # var = aggr_out.var(dim=[1, 2], keepdim=True)
 
-        # norm7: instance norm
-        mean = aggr_out.mean(dim=2, keepdim=True)
-        var = aggr_out.var(dim=2, keepdim=True)
+        # # norm7: instance norm
+        # mean = aggr_out.mean(dim=2, keepdim=True)
+        # var = aggr_out.var(dim=2, keepdim=True)
 
         aggr_out = (aggr_out - mean) / (var + eps).sqrt()
 
