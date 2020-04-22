@@ -222,7 +222,6 @@ class MyEGNNConv(MessagePassing):
         self.linear_att = nn.Linear(3 * out_channels, 1)
         self.linear_concat = nn.Linear(2 * out_channels, out_channels)
 
-        # self.layer_norm = nn.LayerNorm(normalized_shape=out_channels)
         self.reset_parameters()
     
     def reset_parameters(self):
@@ -260,11 +259,10 @@ class MyEGNNConv(MessagePassing):
             x = x[1]
 
         aggr_out = self.linear_concat(torch.cat([x, aggr_out], dim=-1))
-        # aggr_out = self.layer_norm(aggr_out)
         batch_norm = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
         aggr_out = batch_norm(aggr_out)
         
-        return x + F.relu(aggr_out)
+        return x + aggr_out
 
 
 class MyEGNNNet(nn.Module):
@@ -284,8 +282,12 @@ class MyEGNNNet(nn.Module):
 
         X = self.conv1(
             (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0])
+        
+        X = F.leaky_relu(X)
 
         X = self.conv2(
             (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1])
+        
+        X = F.leaky_relu(X)
 
         return X
