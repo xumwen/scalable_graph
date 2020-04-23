@@ -260,7 +260,7 @@ class MyEGNNConv(MessagePassing):
 
         aggr_out = self.linear_concat(torch.cat([x, aggr_out], dim=-1))
 
-        # norm1: batchnorm on node dim
+        # # norm1: batchnorm on node dim
         # batch_norm = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
         # aggr_out = batch_norm(aggr_out)
 
@@ -269,19 +269,19 @@ class MyEGNNConv(MessagePassing):
         # mean = aggr_out.mean()
         # var = aggr_out.var()
 
-        # # norm3: batchnorm on node <=> norm1 0.258
-        # mean = aggr_out.mean(dim=[0, 2], keepdim=True)
-        # var = aggr_out.var(dim=[0, 2], keepdim=True)
+        # norm3: batchnorm on node <=> norm1 0.258
+        mean = aggr_out.mean(dim=[0, 2], keepdim=True)
+        var = aggr_out.var(dim=[0, 2], keepdim=True)
 
-        # norm4: batchnorm on node and channel 0.257
-        mean = aggr_out.mean(dim=0, keepdim=True)
-        var = aggr_out.var(dim=0, keepdim=True)
+        # # norm4: batchnorm on node and channel 0.257
+        # mean = aggr_out.mean(dim=0, keepdim=True)
+        # var = aggr_out.var(dim=0, keepdim=True)
 
-        # # norm5: batchnorm on channel
+        # # norm5: batchnorm on channel 0.284
         # mean = aggr_out.mean(dim=[0, 1], keepdim=True)
         # var = aggr_out.var(dim=[0, 1], keepdim=True)
 
-        # # norm6: layer norm
+        # # norm6: layer norm 0.283
         # mean = aggr_out.mean(dim=[1, 2], keepdim=True)
         # var = aggr_out.var(dim=[1, 2], keepdim=True)
 
