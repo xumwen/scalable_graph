@@ -221,7 +221,7 @@ class MyEGNNConv(MessagePassing):
         self.key = nn.Parameter(torch.Tensor(out_channels, out_channels))
         
         self.linear_att = nn.Linear(3 * out_channels, 1)
-        self.linear_concat = nn.Linear(2 * out_channels, out_channels)
+        self.linear_out = nn.Linear(2 * out_channels, out_channels)
 
         self.reset_parameters()
     
@@ -249,6 +249,7 @@ class MyEGNNConv(MessagePassing):
 
         att_feature = torch.cat([query, key, edge_emb.repeat(x_j.shape[0], 1, 1)], dim=-1)
         att = F.sigmoid(self.linear_att(att_feature))
+        
         # gate of shape [1, E, C]
         gate = F.sigmoid(edge_emb)
 
@@ -258,8 +259,9 @@ class MyEGNNConv(MessagePassing):
         if (isinstance(x, tuple) or isinstance(x, list)):
             x = x[1]
 
-        aggr_out = self.linear_concat(torch.cat([x, aggr_out], dim=-1))
+        aggr_out = self.linear_out(torch.cat([x, aggr_out], dim=-1))
 
+        # batchnorm on node dim
         eps = 1e-5
         mean = aggr_out.mean(dim=[0, 2], keepdim=True)
         var = aggr_out.var(dim=[0, 2], keepdim=True)
