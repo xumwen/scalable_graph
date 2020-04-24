@@ -23,6 +23,7 @@ from torch.utils.data import DataLoader, TensorDataset, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 
 from tgcn import TGCN
+from sandwich import Sandwich
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, get_normalized_adj
 
 
@@ -33,7 +34,7 @@ parser.add_argument('--log-dir', type=str, default='./logs',
                     help='Path to log dir')
 parser.add_argument('--gpus', type=int, default=1,
                     help='Number of GPUs to use')
-parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet'],
+parser.add_argument('-m', "--model", choices=['tgcn', 'sandwich'],
                     help='Choose Spatial-Temporal model', default='stgcn')
 parser.add_argument('-d', "--dataset", choices=["metr", "nyc-bike"],
                     help='Choose dataset', default='metr')
@@ -61,7 +62,7 @@ if torch.cuda.is_available():
 else:
     args.device = torch.device('cpu')
 
-model = TGCN
+model = {'tgcn': TGCN, 'sandwich': Sandwich}.get(args.model)
 log_name = args.log_name
 log_dir = args.log_dir
 gpus = args.gpus
@@ -99,7 +100,7 @@ class NeighborSampleDataset(IterableDataset):
         ) .to('cpu')
 
         graph_sampler = NeighborSampler(
-            # graph, size=[5, 5], num_hops=2, batch_size=100, shuffle=self.shuffle, add_self_loops=True
+            # graph, size=[3, 3], num_hops=2, batch_size=50, shuffle=self.shuffle, add_self_loops=True
             graph, size=[10, 15], num_hops=2, batch_size=250, shuffle=self.shuffle, add_self_loops=True
         )
 
@@ -122,7 +123,8 @@ class NeighborSampleDataset(IterableDataset):
         graph['res_n_id'] = [
             data_flow[i].res_n_id.to(device) for i in range(layers)
         ]
-        graph['cent_n_id'] = data_flow[-1].n_id[data_flow[-1].res_n_id].to(device)
+        graph['cent_n_id'] = data_flow[-1].n_id[data_flow[-1]
+                                                .res_n_id].to(device)
 
         graph['graph_n_id'] = data_flow[0].n_id
 
@@ -200,10 +202,6 @@ class WrapperNet(pl.LightningModule):
     def val_dataloader(self):
         return self.make_sample_dataloader(self.val_input, self.val_target, shuffle=False)
 
-    # def test_dataloader(self):
-    #     if self.hparams.gcn_partition == 'sample':
-    #         return self.make_sample_dataloader(self.test_input, self.test_target, shuffle=False)
-
     def forward(self, X, g):
         return self.net(X, g)
 
@@ -217,62 +215,47 @@ class WrapperNet(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         X, y, g, rows = batch
+
         y_hat = self(X, g)
         assert(y.size() == y_hat.size())
-        loss = loss_criterion(y_hat, y)
-        return {'loss': loss}
+
+        out_dim = y.size(-1)
+
+        index_ptr = torch.cartesian_prod(
+            torch.arange(rows.size(0)),
+            torch.arange(g['cent_n_id'].size(0)),
+            torch.arange(out_dim)
+        )
+
+        label = pd.DataFrame({
+            'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
+            'node_idx': g['cent_n_id'][index_ptr[:, 1]].data.cpu().numpy(),
+            'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
+            'val': y[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
+        })
+
+        pred = pd.DataFrame({
+            'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
+            'node_idx': g['cent_n_id'][index_ptr[:, 1]].data.cpu().numpy(),
+            'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
+            'val': y_hat[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
+        })
+
+        pred = pred.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
+        label = label.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
+
+        return {'label': label, 'pred': pred}
 
     def validation_epoch_end(self, outputs):
-        tqdm_dict = dict()
-        loss_mean = torch.stack([x['loss'] for x in outputs]).mean()
-        tqdm_dict['val_loss'] = loss_mean
+        pred = pd.concat([x['pred'] for x in outputs], axis=0)
+        label = pd.concat([x['label'] for x in outputs], axis=0)
 
-        return {'progress_bar': tqdm_dict, 'log': tqdm_dict}
+        pred = pred.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
+        label = label.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
 
-    # def validation_step(self, batch, batch_idx):
-    #     X, y, g, rows = batch
+        loss = np.mean((pred.values - label.values) ** 2)
 
-    #     y_hat = self(X, g)
-    #     assert(y.size() == y_hat.size())
-
-    #     out_dim = y.size(-1)
-
-    #     index_ptr = torch.cartesian_prod(
-    #         torch.arange(rows.size(0)),
-    #         torch.arange(g['cent_n_id'].size(0)),
-    #         torch.arange(out_dim)
-    #     )
-
-    #     label = pd.DataFrame({
-    #         'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
-    #         'node_idx': g['cent_n_id'][index_ptr[:, 1]].data.cpu().numpy(),
-    #         'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
-    #         'val': y[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
-    #     })
-
-    #     pred = pd.DataFrame({
-    #         'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
-    #         'node_idx': g['cent_n_id'][index_ptr[:, 1]].data.cpu().numpy(),
-    #         'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
-    #         'val': y_hat[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
-    #     })
-
-    #     pred = pred.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-    #     label = label.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-
-    #     return {'label': label, 'pred': pred}
-
-    # def validation_epoch_end(self, outputs):
-    #     pred = pd.concat([x['pred'] for x in outputs], axis=0)
-    #     label = pd.concat([x['label'] for x in outputs], axis=0)
-
-    #     pred = pred.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-    #     label = label.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-
-    #     loss = np.mean((pred.values - label.values) ** 2)
-
-    #     return {'log': {'val_loss': loss}, 'progress_bar': {'val_loss': loss}}
-
+        return {'log': {'val_loss': loss}, 'progress_bar': {'val_loss': loss}}
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
