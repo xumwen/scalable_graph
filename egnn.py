@@ -118,9 +118,6 @@ class GatedGCN(MessagePassing):
         self.u = nn.Parameter(torch.Tensor(out_channels, out_channels))
         self.v = nn.Parameter(torch.Tensor(out_channels, out_channels))
 
-        self.batch_norm = nn.BatchNorm1d(num_features=out_channels)
-        self.layer_norm = nn.LayerNorm(normalized_shape=out_channels)
-
         self.reset_parameters()
     
     def reset_parameters(self):
@@ -151,11 +148,8 @@ class GatedGCN(MessagePassing):
 
         aggr_out = torch.matmul(x, self.u) + aggr_out
 
-        # sz = aggr_out.shape
-        # bn = nn.BatchNorm1d(sz[1]).to(x.device)
-        # aggr_out = bn(aggr_out)
-        # aggr_out = self.batch_norm(aggr_out.view(-1, self.out_channels)).view(sz)
-        aggr_out = self.layer_norm(aggr_out)
+        bn = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
+        aggr_out = bn(aggr_out)
         
         aggr_out = x + F.relu(aggr_out)
         
