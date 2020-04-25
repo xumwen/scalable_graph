@@ -251,7 +251,7 @@ if __name__ == '__main__':
     start_time = time.time()
     print('Arguments:')
     print(args)
-    torch.manual_seed(7)
+    torch.manual_seed(31)
 
     if args.dataset == "metr":
         A, X, means, stds = load_metr_la_data()
