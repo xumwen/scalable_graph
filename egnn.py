@@ -208,29 +208,29 @@ class MyEGNNConv(MessagePassing):
         self.out_channels = out_channels
         self.edge_channels = edge_channels
         
-        self.value = nn.Parameter(torch.Tensor(in_channels, out_channels))
-        self.key = nn.Parameter(torch.Tensor(out_channels, out_channels))
-        self.query = nn.Parameter(torch.Tensor(out_channels, out_channels))
-        
+        self.weight_n = nn.Parameter(torch.Tensor(in_channels, out_channels))
         self.weight_e = nn.Parameter(torch.Tensor(edge_channels, out_channels))
+
+        self.query = nn.Parameter(torch.Tensor(out_channels, out_channels))
+        self.key = nn.Parameter(torch.Tensor(out_channels, out_channels))
+        
         self.linear_att = nn.Linear(3 * out_channels, 1)
-        self.linear_concat = nn.Linear(2 * out_channels, out_channels)
+        self.linear_out = nn.Linear(2 * out_channels, out_channels)
 
         self.reset_parameters()
     
     def reset_parameters(self):
-        nn.init.xavier_uniform_(self.value)
-        nn.init.xavier_uniform_(self.key)
-        nn.init.xavier_uniform_(self.query)
+        nn.init.xavier_uniform_(self.weight_n)
         nn.init.xavier_uniform_(self.weight_e)
-
+        nn.init.xavier_uniform_(self.query)
+        nn.init.xavier_uniform_(self.key)
 
     def forward(self, x, edge_index, edge_feature, size=None):
         if torch.is_tensor(x):
-            x = torch.matmul(x, self.value)
+            x = torch.matmul(x, self.weight_n)
         else:
-            x = (None if x[0] is None else torch.matmul(x[0], self.value),
-                 None if x[1] is None else torch.matmul(x[1], self.value))
+            x = (None if x[0] is None else torch.matmul(x[0], self.weight_n),
+                 None if x[1] is None else torch.matmul(x[1], self.weight_n))
 
         edge_emb = torch.matmul(edge_feature, self.weight_e)
 
@@ -241,8 +241,9 @@ class MyEGNNConv(MessagePassing):
         query = torch.matmul(x_j, self.query)
         key = torch.matmul(x_i, self.key)
 
-        att_feature = torch.cat([key, query, edge_emb.repeat(x_j.shape[0], 1, 1)], dim=-1)
+        att_feature = torch.cat([query, key, edge_emb.repeat(x_j.shape[0], 1, 1)], dim=-1)
         att = F.sigmoid(self.linear_att(att_feature))
+        
         # gate of shape [1, E, C]
         gate = F.sigmoid(edge_emb)
 
@@ -252,8 +253,9 @@ class MyEGNNConv(MessagePassing):
         if (isinstance(x, tuple) or isinstance(x, list)):
             x = x[1]
 
-        aggr_out = self.linear_concat(torch.cat([x, aggr_out], dim=-1))
+        aggr_out = self.linear_out(torch.cat([x, aggr_out], dim=-1))
 
+        # batchnorm on node dim
         eps = 1e-5
         mean = aggr_out.mean(dim=[0, 2], keepdim=True)
         var = aggr_out.var(dim=[0, 2], keepdim=True)
