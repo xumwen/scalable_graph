@@ -54,6 +54,8 @@ parser.add_argument('-num-timesteps-output', type=int, default=3,
                     help='Num of output timesteps for forecasting')
 parser.add_argument('-early-stop-rounds', type=int, default=30,
                     help='Earlystop rounds when validation loss does not decrease')
+parser.add_argument('-seed', type=int, default=7,
+                    help='random seed')
 
 args = parser.parse_args()
 if torch.cuda.is_available():
@@ -75,6 +77,7 @@ epochs = args.epochs
 num_timesteps_input = args.num_timesteps_input
 num_timesteps_output = args.num_timesteps_output
 early_stop_rounds = args.early_stop_rounds
+seed = args.seed
 
 
 class NeighborSampleDataset(IterableDataset):
@@ -251,7 +254,7 @@ if __name__ == '__main__':
     start_time = time.time()
     print('Arguments:')
     print(args)
-    torch.manual_seed(31)
+    torch.manual_seed(seed)
 
     if args.dataset == "metr":
         A, X, means, stds = load_metr_la_data()
