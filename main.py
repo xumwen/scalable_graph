@@ -62,7 +62,7 @@ if torch.cuda.is_available():
 else:
     args.device = torch.device('cpu')
 
-model = {'tgcn':TGCN, 'stgcn':STGCN}.get(args.model)
+model = {'tgcn':TGCN, 'stgcn':STGCN, 'sandwich':Sandwich}.get(args.model)
 log_name = args.log_name
 log_dir = args.log_dir
 gpus = args.gpus
@@ -76,7 +76,6 @@ epochs = args.epochs
 num_timesteps_input = args.num_timesteps_input
 num_timesteps_output = args.num_timesteps_output
 early_stop_rounds = args.early_stop_rounds
-seed = args.seed
 
 
 class NeighborSampleDataset(IterableDataset):
@@ -314,7 +313,7 @@ if __name__ == '__main__':
     logger = TestTubeLogger(save_dir=log_dir, name=log_name)
 
     trainer = pl.Trainer(
-        gpus=gpus,
+        gpus=[0],
         max_epochs=epochs,
         distributed_backend='ddp',
         early_stop_callback=early_stop_callback,
