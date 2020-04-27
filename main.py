@@ -54,8 +54,6 @@ parser.add_argument('-num-timesteps-output', type=int, default=3,
                     help='Num of output timesteps for forecasting')
 parser.add_argument('-early-stop-rounds', type=int, default=30,
                     help='Earlystop rounds when validation loss does not decrease')
-parser.add_argument('-seed', type=int, default=7,
-                    help='random seed')
 
 args = parser.parse_args()
 if torch.cuda.is_available():
@@ -254,7 +252,7 @@ if __name__ == '__main__':
     start_time = time.time()
     print('Arguments:')
     print(args)
-    torch.manual_seed(seed)
+    torch.manual_seed(11)
 
     if args.dataset == "metr":
         A, X, means, stds = load_metr_la_data()
