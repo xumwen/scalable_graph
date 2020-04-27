@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 
 from tgcn import TGCN
+from sandwich import Sandwich
 from stgcn import STGCN
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, get_normalized_adj
 from cluster_dataset import ClusterDataset
@@ -33,7 +34,7 @@ parser.add_argument('--log-dir', type=str, default='./logs',
                     help='Path to log dir')
 parser.add_argument('--gpus', type=int, default=1,
                     help='Number of GPUs to use')
-parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet'],
+parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet', 'sandwich'],
                     help='Choose Spatial-Temporal model', default='stgcn')
 parser.add_argument('-d', "--dataset", choices=["metr", "nyc-bike"],
                     help='Choose dataset', default='metr')
