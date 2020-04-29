@@ -8,6 +8,7 @@ import calendar
 from dateutil.relativedelta import relativedelta
 from math import sin, asin, cos, radians, sqrt
 
+
 def load_nyc_sharing_bike_data(directory="data/NYC-Sharing-Bike"):
     if (not os.path.isfile(directory + "/adj_mat.npy")
             or not os.path.isfile(directory + "/node_values.npy")):
@@ -34,6 +35,7 @@ def load_nyc_sharing_bike_data(directory="data/NYC-Sharing-Bike"):
     X = X / stds.reshape(1, -1, 1)
 
     return A, X, means, stds
+
 
 def parse_nyc_sharing_bike_data(directory, filename):
     zip_path = directory + "/" + filename
@@ -83,6 +85,7 @@ def parse_nyc_sharing_bike_data(directory, filename):
     np.save(directory + "/node_values.npy", X)
     return
 
+
 def read_monthly_tripdata(date, nodes_info, X, timestep_base):
     # path example: 2013-08 - Citi Bike trip data.csv or 201409-citibike-tripdata.csv
     path = directory + "/" + date.strftime("%Y-%m") + " - Citi Bike trip data.csv"
@@ -126,16 +129,19 @@ def read_monthly_tripdata(date, nodes_info, X, timestep_base):
     print("Read %s data successfully." % date.strftime("%Y-%m"))
     return
 
+
 def change_avg_degree(A, K=100):
     index = len(A) * K
     threshold = sorted(A.flatten(), reverse=True)[index]
     A[A <= threshold] = 0
     return A
 
+
 def hav(theta):
     s = sin(theta / 2)
     return s * s
  
+
 def calculate_distance(lon1, lat1, lon2, lat2):
     '''
     Use haversine formula to calculate distance between two points by longtude and latitude.
@@ -153,6 +159,7 @@ def calculate_distance(lon1, lat1, lon2, lat2):
     distance = 2 * EARTH_RADIUS * asin(sqrt(h))
  
     return max(distance, 0.1)
+
 
 def load_metr_la_data(directory="data/METR-LA"):
     if (not os.path.isfile(directory + "/adj_mat.npy")
