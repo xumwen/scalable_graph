@@ -21,6 +21,7 @@ from torch.utils.data import DataLoader, TensorDataset, IterableDataset
 from torch.utils.data.distributed import DistributedSampler
 
 from tgcn import TGCN
+from sandwich import Sandwich
 from stgcn import STGCN
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, get_normalized_adj
 from cluster_dataset import ClusterDataset
@@ -33,7 +34,7 @@ parser.add_argument('--log-dir', type=str, default='./logs',
                     help='Path to log dir')
 parser.add_argument('--gpus', type=int, default=1,
                     help='Number of GPUs to use')
-parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet'],
+parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet', 'sandwich'],
                     help='Choose Spatial-Temporal model', default='stgcn')
 parser.add_argument('-d', "--dataset", choices=["metr", "nyc-bike"],
                     help='Choose dataset', default='metr')
@@ -54,8 +55,6 @@ parser.add_argument('-num-timesteps-output', type=int, default=3,
                     help='Num of output timesteps for forecasting')
 parser.add_argument('-early-stop-rounds', type=int, default=30,
                     help='Earlystop rounds when validation loss does not decrease')
-parser.add_argument('-seed', type=int, default=7,
-                    help='random seed')
 
 args = parser.parse_args()
 if torch.cuda.is_available():
@@ -63,7 +62,7 @@ if torch.cuda.is_available():
 else:
     args.device = torch.device('cpu')
 
-model = {'tgcn':TGCN, 'stgcn':STGCN}.get(args.model)
+model = {'tgcn':TGCN, 'stgcn':STGCN, 'sandwich':Sandwich}.get(args.model)
 log_name = args.log_name
 log_dir = args.log_dir
 gpus = args.gpus
@@ -77,7 +76,6 @@ epochs = args.epochs
 num_timesteps_input = args.num_timesteps_input
 num_timesteps_output = args.num_timesteps_output
 early_stop_rounds = args.early_stop_rounds
-seed = args.seed
 
 
 class NeighborSampleDataset(IterableDataset):
@@ -254,7 +252,7 @@ if __name__ == '__main__':
     start_time = time.time()
     print('Arguments:')
     print(args)
-    torch.manual_seed(seed)
+    torch.manual_seed(11)
 
     if args.dataset == "metr":
         A, X, means, stds = load_metr_la_data()
@@ -315,7 +313,7 @@ if __name__ == '__main__':
     logger = TestTubeLogger(save_dir=log_dir, name=log_name)
 
     trainer = pl.Trainer(
-        gpus=gpus,
+        gpus=[0],
         max_epochs=epochs,
         distributed_backend='ddp',
         early_stop_callback=early_stop_callback,

@@ -8,6 +8,86 @@ import torch_geometric.nn as PyG
 from torch_geometric.data import Data, Batch, DataLoader, NeighborSampler, ClusterData, ClusterLoader
 
 
+class GatedGCN(PyG.MessagePassing):
+    """
+    The GatedGCN operator from the `"Residual Gated Graph ConvNets" 
+    <https://arxiv.org/abs/1711.07553>`_ paper
+    """
+    def __init__(self, in_channels, out_channels, edge_channels, 
+                 **kwargs):
+        super(GatedGCN, self).__init__(aggr='mean', **kwargs)
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.edge_channels = edge_channels
+        
+        self.weight1 = nn.Parameter(torch.Tensor(in_channels, out_channels))
+        self.weight2 = nn.Parameter(torch.Tensor(edge_channels, out_channels))
+
+        self.u = nn.Parameter(torch.Tensor(out_channels, out_channels))
+        self.v = nn.Parameter(torch.Tensor(out_channels, out_channels))
+
+        self.reset_parameters()
+    
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight1)
+        nn.init.xavier_uniform_(self.weight2)
+        nn.init.xavier_uniform_(self.u)
+        nn.init.xavier_uniform_(self.v)
+
+    def forward(self, x, edge_index, edge_feature, size=None):
+        if torch.is_tensor(x):
+            x = torch.matmul(x, self.weight1)
+        else:
+            x = (None if x[0] is None else torch.matmul(x[0], self.weight1),
+                 None if x[1] is None else torch.matmul(x[1], self.weight1))
+
+        edge_emb = torch.matmul(edge_feature, self.weight2)
+
+        return self.propagate(edge_index, size=size, x=x, edge_emb=edge_emb)
+
+    def message(self, x_j, edge_emb):
+        x_j = torch.matmul(x_j, self.v)
+
+        return edge_emb * x_j
+
+    def update(self, aggr_out, x):
+        if (isinstance(x, tuple) or isinstance(x, list)):
+            x = x[1]
+
+        aggr_out = torch.matmul(x, self.u) + aggr_out
+
+        bn = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
+        aggr_out = bn(aggr_out)
+        
+        aggr_out = x + F.relu(aggr_out)
+        
+        return aggr_out
+
+
+class GatedGCNNet(nn.Module):
+    def __init__(self, in_channels, out_channels, spatial_channels=16):
+        super(GatedGCNNet, self).__init__()
+        self.conv1 = GatedGCN(
+            in_channels, spatial_channels, edge_channels=1, node_dim=1)
+        self.conv2 = GatedGCN(
+            spatial_channels, out_channels, edge_channels=1, node_dim=1)
+
+    def forward(self, X, g):
+        edge_index = g['edge_index']
+        edge_weight = g['edge_weight']
+
+        size = g['size']
+        res_n_id = g['res_n_id']
+
+        X = self.conv1(
+            (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0])
+
+        X = self.conv2(
+            (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1])
+
+        return X
+
 class MyGATConv(PyG.MessagePassing):
     def __init__(self, in_channels, out_channels, edge_channels=1, **kwargs):
         super(MyGATConv, self).__init__(aggr='mean', **kwargs)
@@ -55,10 +135,10 @@ class MyGATConv(PyG.MessagePassing):
     def update(self, aggr_out, x):
         x = x[1]
         aggr_out = torch.matmul(x, self.u) + aggr_out
-        aggr_out = aggr_out.permute(1, 0, 2)
-        bn = nn.BatchNorm1d(aggr_out.shape[1]).to(x.device)
-        aggr_out = bn(aggr_out)
-        aggr_out = aggr_out.permute(1, 0, 2)
+
+        mean = aggr_out.view(aggr_out.size(0), -1).mean(dim=1).view(-1, 1, 1)
+        std = aggr_out.view(aggr_out.size(0), -1).std(dim=1).view(-1, 1, 1)
+        aggr_out = (aggr_out - mean) / (std + 1e-5)
 
         return x + aggr_out
 
@@ -108,7 +188,6 @@ class MySAGEConv(PyG.SAGEConv):
             aggr_out = torch.cat([x, aggr_out], dim=-1)
         elif self.concat and (isinstance(x, tuple) or isinstance(x, list)):
             assert res_n_id is not None
-            # TODO: to check the consistency
             aggr_out = torch.cat([x[0][res_n_id], aggr_out], dim=-1)
 
         aggr_out = torch.matmul(aggr_out, self.weight)
@@ -123,7 +202,7 @@ class MySAGEConv(PyG.SAGEConv):
 
 
 class SAGENet(nn.Module):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, **kwargs):
         super(SAGENet, self).__init__()
         self.conv1 = MySAGEConv(
             in_channels, 16, normalize=False, concat=True)
