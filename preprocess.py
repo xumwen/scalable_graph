@@ -20,6 +20,8 @@ def load_nyc_sharing_bike_data(directory="data/NYC-Sharing-Bike"):
     A = np.load(directory + "/adj_mat.npy")
     A = A.astype(np.float32)
     A = change_avg_degree(A, K=100)
+    # normalize adj matrix
+    A = A / A.sum(axis=0, keepdims=True)
     # X's shape is (num_nodes, num_features, num_sequence)
     X = np.load(directory + "/node_values.npy")
     X = X.astype(np.float32)
