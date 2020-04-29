@@ -19,6 +19,7 @@ def load_nyc_sharing_bike_data(directory="data/NYC-Sharing-Bike"):
 
     A = np.load(directory + "/adj_mat.npy")
     A = A.astype(np.float32)
+    A = change_avg_degree(A, K=100)
     # X's shape is (num_nodes, num_features, num_sequence)
     X = np.load(directory + "/node_values.npy")
     X = X.astype(np.float32)
@@ -122,6 +123,12 @@ def read_monthly_tripdata(date, nodes_info, X, timestep_base):
         
     print("Read %s data successfully." % date.strftime("%Y-%m"))
     return
+
+def change_avg_degree(A, K=100):
+    index = len(A) * K
+    threshold = sorted(A.flatten(), reverse=True)[index]
+    A[A <= threshold] = 0
+    return A
 
 def hav(theta):
     s = sin(theta / 2)
