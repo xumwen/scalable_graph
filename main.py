@@ -23,7 +23,7 @@ from torch.utils.data.distributed import DistributedSampler
 from tgcn import TGCN
 from sandwich import Sandwich
 from stgcn import STGCN
-from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, get_normalized_adj
+from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, get_normalized_adj
 from cluster_dataset import ClusterDataset
 
 
@@ -35,14 +35,14 @@ parser.add_argument('--log-dir', type=str, default='./logs',
 parser.add_argument('--gpus', type=int, default=1,
                     help='Number of GPUs to use')
 parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet', 'sandwich'],
-                    help='Choose Spatial-Temporal model', default='stgcn')
-parser.add_argument('-d', "--dataset", choices=["metr", "nyc-bike"],
+                    help='Choose Spatial-Temporal model', default='tgcn')
+parser.add_argument('-d', "--dataset", choices=["metr", "nyc", "pems"],
                     help='Choose dataset', default='metr')
-parser.add_argument('-t', "--gcn-type", choices=['sage', 'graph', 'gat', 'sagela', 'gated', 'my'],
-                    help='Choose GCN Conv Type', default='graph')
+parser.add_argument('-t', "--gcn-type", choices=['sage', 'graph', 'gat', 'sagela', 'gated', 'egnn'],
+                    help='Choose GCN Conv Type', default='egnn')
 parser.add_argument('-part', "--gcn-partition", choices=['cluster', 'sample'],
                     help='Choose GCN partition method',
-                    default=None)
+                    default='sample')
 parser.add_argument('-batchsize', type=int, default=32,
                     help='Training batch size')
 parser.add_argument('-epochs', type=int, default=1000,
@@ -256,8 +256,10 @@ if __name__ == '__main__':
 
     if args.dataset == "metr":
         A, X, means, stds = load_metr_la_data()
-    else:
+    elif args.dataset == "nyc":
         A, X, means, stds = load_nyc_sharing_bike_data()
+    else:
+        A, X, means, stds = load_pems_d7_data()
 
     split_line1 = int(X.shape[2] * 0.6)
     split_line2 = int(X.shape[2] * 0.8)

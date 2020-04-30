@@ -13,7 +13,7 @@ class GCNBlock(nn.Module):
     def __init__(self, in_channels, spatial_channels, num_nodes, gcn_type):
         super(GCNBlock, self).__init__()
         GCNUnit = {'sage': SAGENet, 'gat': GATNet,
-                   'gated': GatedGCNNet, 'my': MyEGNNNet}.get(gcn_type)
+                   'gated': GatedGCNNet, 'egnn': MyEGNNNet}.get(gcn_type)
         self.gcn = GCNUnit(in_channels=in_channels,
                            out_channels=spatial_channels)
 

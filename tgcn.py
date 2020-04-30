@@ -21,7 +21,7 @@ class GCNBlock(nn.Module):
                         'gat': GATNet, 
                         'sagela': SAGELANet, 
                         'gated': GatedGCNNet,
-                        'my': MyEGNNNet}.get(gcn_type)
+                        'egnn': MyEGNNNet}.get(gcn_type)
         self.gcn = GCNUnit(in_channels=in_channels,
                            out_channels=spatial_channels)
 
