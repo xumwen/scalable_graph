@@ -249,7 +249,9 @@ class MyEGNNConv(MessagePassing):
         query = torch.matmul(x_j, self.query)
         key = torch.matmul(x_i, self.key)
 
-        att_feature = torch.cat([query, key, edge_emb.repeat(x_j.shape[0], 1, 1)], dim=-1)
+        edge_emb = edge_emb.unsqueeze(dim=1).expand_as(query)
+
+        att_feature = torch.cat([query, key, edge_emb], dim=-1)
         att = F.sigmoid(self.linear_att(att_feature))
         
         # gate of shape [1, E, C]
@@ -277,9 +279,9 @@ class MyEGNNNet(nn.Module):
     def __init__(self, in_channels, out_channels, spatial_channels=16):
         super(MyEGNNNet, self).__init__()
         self.conv1 = MyEGNNConv(
-            in_channels, spatial_channels, edge_channels=1, node_dim=1)
+            in_channels, spatial_channels, edge_channels=1)
         self.conv2 = MyEGNNConv(
-            spatial_channels, out_channels, edge_channels=1, node_dim=1)
+            spatial_channels, out_channels, edge_channels=1)
 
     def forward(self, X, g):
         edge_index = g['edge_index']
@@ -289,14 +291,18 @@ class MyEGNNNet(nn.Module):
         n_id = g['n_id']
         res_n_id = g['res_n_id']
 
+        X = X.permute(1, 0, 2)
+
         X = self.conv1(
-            (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0], indices=n_id[0][res_n_id[0]])
+            (X, X[res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0], indices=n_id[0][res_n_id[0]])
         
         X = F.leaky_relu(X)
 
         X = self.conv2(
-            (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1], indices=n_id[1][res_n_id[1]])
+            (X, X[res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1], indices=n_id[1][res_n_id[1]])
         
         X = F.leaky_relu(X)
+
+        X = X.permute(1, 0, 2)
 
         return X
