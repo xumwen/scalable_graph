@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch_geometric.nn as PyG
 from torch_geometric.nn.conv import MessagePassing
+from valuenorm import ValueNorm
 
 
 class SAGELA(PyG.SAGEConv):
@@ -222,6 +223,8 @@ class MyEGNNConv(MessagePassing):
         self.linear_att = nn.Linear(3 * out_channels, 1)
         self.linear_out = nn.Linear(2 * out_channels, out_channels)
 
+        self.value_norm = ValueNorm(700)
+
         self.reset_parameters()
     
     def reset_parameters(self):
@@ -230,7 +233,7 @@ class MyEGNNConv(MessagePassing):
         nn.init.xavier_uniform_(self.query)
         nn.init.xavier_uniform_(self.key)
 
-    def forward(self, x, edge_index, edge_feature, size=None):
+    def forward(self, x, edge_index, edge_feature, size=None, indices=None):
         if torch.is_tensor(x):
             x = torch.matmul(x, self.weight_n)
         else:
@@ -239,7 +242,7 @@ class MyEGNNConv(MessagePassing):
 
         edge_emb = torch.matmul(edge_feature, self.weight_e)
 
-        return self.propagate(edge_index, size=size, x=x, edge_emb=edge_emb)
+        return self.propagate(edge_index, size=size, x=x, edge_emb=edge_emb, indices=indices)
 
     def message(self, x_j, x_i, edge_emb):
         # cal att of shape [B, E, 1]
@@ -254,17 +257,18 @@ class MyEGNNConv(MessagePassing):
 
         return att * x_j * gate
 
-    def update(self, aggr_out, x):
+    def update(self, aggr_out, x, indices):
         if (isinstance(x, tuple) or isinstance(x, list)):
             x = x[1]
 
         aggr_out = self.linear_out(torch.cat([x, aggr_out], dim=-1))
 
-        # batchnorm on node dim
-        eps = 1e-5
-        mean = aggr_out.mean(dim=[0, 2], keepdim=True)
-        var = aggr_out.var(dim=[0, 2], keepdim=True)
-        aggr_out = (aggr_out - mean) / (var + eps).sqrt()
+        # # batchnorm on node dim
+        # eps = 1e-5
+        # mean = aggr_out.mean(dim=[0, 2], keepdim=True)
+        # var = aggr_out.var(dim=[0, 2], keepdim=True)
+        # aggr_out = (aggr_out - mean) / (var + eps).sqrt()
+        aggr_out = self.value_norm(aggr_out, indices)
 
         return x + aggr_out
 
@@ -282,15 +286,16 @@ class MyEGNNNet(nn.Module):
         edge_weight = g['edge_weight']
 
         size = g['size']
+        n_id = g['n_id']
         res_n_id = g['res_n_id']
 
         X = self.conv1(
-            (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0])
+            (X, X[:, res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0], indices=n_id[0][res_n_id[0]])
         
         X = F.leaky_relu(X)
 
         X = self.conv2(
-            (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1])
+            (X, X[:, res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1], indices=n_id[1][res_n_id[1]])
         
         X = F.leaky_relu(X)
 

@@ -45,6 +45,8 @@ parser.add_argument('-part', "--gcn-partition", choices=['cluster', 'sample'],
                     default='sample')
 parser.add_argument('-batchsize', type=int, default=32,
                     help='Training batch size')
+parser.add_argument('-val_batchsize', type=int, default=32,
+                    help='Validation batch size')
 parser.add_argument('-epochs', type=int, default=1000,
                     help='Training epochs')
 parser.add_argument('-l', '--loss-criterion', choices=['mse', 'mae'],
@@ -72,6 +74,7 @@ loss_criterion = {'mse': nn.MSELoss(), 'mae': nn.L1Loss()}\
 gcn_type = args.gcn_type
 gcn_partition = args.gcn_partition
 batch_size = args.batchsize
+val_batchsize = args.val_batchsize
 epochs = args.epochs
 num_timesteps_input = args.num_timesteps_input
 num_timesteps_output = args.num_timesteps_output
@@ -100,8 +103,8 @@ class NeighborSampleDataset(IterableDataset):
         ) .to('cpu')
 
         graph_sampler = NeighborSampler(
-            graph, size=[5, 5], num_hops=2, batch_size=100, shuffle=self.shuffle, add_self_loops=True
-            # graph, size=[10, 15], num_hops=2, batch_size=250, shuffle=self.shuffle, add_self_loops=True
+            # graph, size=[5, 5], num_hops=2, batch_size=100, shuffle=self.shuffle, add_self_loops=True
+            graph, size=[10, 15], num_hops=2, batch_size=250, shuffle=self.shuffle, add_self_loops=True
         )
 
         return graph_sampler
@@ -120,6 +123,7 @@ class NeighborSampleDataset(IterableDataset):
             self.edge_weight[data_flow[i].e_id].to(device) for i in range(layers)
         ]
         graph['size'] = [data_flow[i].size for i in range(layers)]
+        graph['n_id'] = [data_flow[i].n_id for i in range(layers)]
         graph['res_n_id'] = [
             data_flow[i].res_n_id.to(device) for i in range(layers)
         ]
@@ -187,7 +191,7 @@ class WrapperNet(pl.LightningModule):
         self.test_input = test_input
         self.test_target = test_target
 
-    def make_sample_dataloader(self, X, y, shuffle):
+    def make_sample_dataloader(self, X, y, batch_size, shuffle):
         # return a data loader based on neighbor sampling
         dataset = NeighborSampleDataset(
             X, y, self.edge_index, self.edge_weight,
@@ -205,13 +209,13 @@ class WrapperNet(pl.LightningModule):
 
     def train_dataloader(self):
         if self.hparams.gcn_partition == 'sample':
-            return self.make_sample_dataloader(self.training_input, self.training_target, shuffle=True)
+            return self.make_sample_dataloader(self.training_input, self.training_target, batch_size=batch_size, shuffle=True)
         elif self.hparams.gcn_partition == 'cluster':
             return self.make_cluster_dataloader(self.training_input, self.training_target, shuffle=True)
 
     def val_dataloader(self):
         if self.hparams.gcn_partition == 'sample':
-            return self.make_sample_dataloader(self.val_input, self.val_target, shuffle=False)
+            return self.make_sample_dataloader(self.val_input, self.val_target, batch_size=val_batchsize, shuffle=False)
         elif self.hparams.gcn_partition == 'cluster':
             return self.make_cluster_dataloader(self.val_input, self.val_target, shuffle=False)
 
