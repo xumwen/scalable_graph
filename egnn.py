@@ -270,7 +270,7 @@ class MyEGNNConv(MessagePassing):
         # mean = aggr_out.mean(dim=[0, 2], keepdim=True)
         # var = aggr_out.var(dim=[0, 2], keepdim=True)
         # aggr_out = (aggr_out - mean) / (var + eps).sqrt()
-        aggr_out = self.value_norm(aggr_out, indices)
+        aggr_out = self.value_norm(aggr_out, indices, affine=False, track_running_stats=False)
 
         return x + aggr_out
 
