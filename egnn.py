@@ -223,7 +223,7 @@ class MyEGNNConv(MessagePassing):
         self.linear_att = nn.Linear(3 * out_channels, 1)
         self.linear_out = nn.Linear(2 * out_channels, out_channels)
 
-        self.value_norm = ValueNorm(700, affine=False, track_running_stats=False)
+        self.value_norm = ValueNorm(700, affine=False, track_running_stats=True)
 
         self.reset_parameters()
     
