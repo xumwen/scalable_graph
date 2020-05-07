@@ -223,7 +223,7 @@ class MyEGNNConv(MessagePassing):
         self.linear_att = nn.Linear(3 * out_channels, 1)
         self.linear_out = nn.Linear(2 * out_channels, out_channels)
 
-        self.value_norm = ValueNorm(700)
+        self.value_norm = ValueNorm(700, affine=False, track_running_stats=False)
 
         self.reset_parameters()
     
@@ -270,7 +270,7 @@ class MyEGNNConv(MessagePassing):
         # mean = aggr_out.mean(dim=[0, 2], keepdim=True)
         # var = aggr_out.var(dim=[0, 2], keepdim=True)
         # aggr_out = (aggr_out - mean) / (var + eps).sqrt()
-        aggr_out = self.value_norm(aggr_out, indices, affine=False, track_running_stats=False)
+        aggr_out = self.value_norm(aggr_out, indices)
 
         return x + aggr_out
 
