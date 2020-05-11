@@ -232,10 +232,12 @@ class WrapperNet(pl.LightningModule):
         X, y, g = batch
         y_hat = self(X, g)
         assert(y.size() == y_hat.size())
-        if args.loss_criterion == "mae":
-            loss = loss_criterion(y_hat * self.std + self.mean, y * self.std + self.mean)
-        else:
-            loss = loss_criterion(y_hat, y)
+
+        if args.dataset == "pems":
+            y_hat = y_hat * self.std + self.mean
+            y = y * self.std + self.mean
+
+        loss = loss_criterion(y_hat, y)
 
         return {'loss': loss, 'log': {'train_loss': loss}}
 
@@ -243,10 +245,12 @@ class WrapperNet(pl.LightningModule):
         X, y, g = batch
         y_hat = self(X, g)
         assert(y.size() == y_hat.size())
-        if args.loss_criterion == "mae":
-            loss = loss_criterion(y_hat * self.std + self.mean, y * self.std + self.mean)
-        else:
-            loss = loss_criterion(y_hat, y)
+        
+        if args.dataset == "pems":
+            y_hat = y_hat * self.std + self.mean
+            y = y * self.std + self.mean
+
+        loss = loss_criterion(y_hat, y)
 
         return {'loss': loss}
 
