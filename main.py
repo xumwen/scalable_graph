@@ -23,7 +23,7 @@ from torch.utils.data.distributed import DistributedSampler
 from tgcn import TGCN
 from sandwich import Sandwich
 from stgcn import STGCN
-from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, get_normalized_adj
+from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, load_pems_m_data, get_normalized_adj
 from cluster_dataset import ClusterDataset
 
 
@@ -36,7 +36,7 @@ parser.add_argument('--gpus', type=int, default=1,
                     help='Number of GPUs to use')
 parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet', 'sandwich'],
                     help='Choose Spatial-Temporal model', default='tgcn')
-parser.add_argument('-d', "--dataset", choices=["metr", "nyc", "pems"],
+parser.add_argument('-d', "--dataset", choices=["metr", "nyc", "pems", "pems-m"],
                     help='Choose dataset', default='metr')
 parser.add_argument('-t', "--gcn-type", choices=['sage', 'graph', 'gat', 'sagela', 'gated', 'egnn'],
                     help='Choose GCN Conv Type', default='egnn')
@@ -182,7 +182,7 @@ class WrapperNet(pl.LightningModule):
         self.edge_index.copy_(edge_index)
         self.edge_weight.copy_(edge_weight)
 
-    def init_data(self, training_input, training_target, val_input, val_target, test_input, test_target):
+    def init_data(self, training_input, training_target, val_input, val_target, test_input, test_target, mean, std):
         print('preparing data...')
         self.training_input = training_input
         self.training_target = training_target
@@ -190,6 +190,8 @@ class WrapperNet(pl.LightningModule):
         self.val_target = val_target
         self.test_input = test_input
         self.test_target = test_target
+        self.mean = mean
+        self.std = std
 
     def make_sample_dataloader(self, X, y, batch_size, shuffle):
         # return a data loader based on neighbor sampling
@@ -230,7 +232,10 @@ class WrapperNet(pl.LightningModule):
         X, y, g = batch
         y_hat = self(X, g)
         assert(y.size() == y_hat.size())
-        loss = loss_criterion(y_hat, y)
+        if args.loss_criterion == "mae":
+            loss = loss_criterion(y_hat * self.std + self.mean, y * self.std + self.mean)
+        else:
+            loss = loss_criterion(y_hat, y)
 
         return {'loss': loss, 'log': {'train_loss': loss}}
 
@@ -238,7 +243,11 @@ class WrapperNet(pl.LightningModule):
         X, y, g = batch
         y_hat = self(X, g)
         assert(y.size() == y_hat.size())
-        loss = loss_criterion(y_hat, y)
+        if args.loss_criterion == "mae":
+            loss = loss_criterion(y_hat * self.std + self.mean, y * self.std + self.mean)
+        else:
+            loss = loss_criterion(y_hat, y)
+
         return {'loss': loss}
 
     def validation_epoch_end(self, outputs):
@@ -262,8 +271,10 @@ if __name__ == '__main__':
         A, X, means, stds = load_metr_la_data()
     elif args.dataset == "nyc":
         A, X, means, stds = load_nyc_sharing_bike_data()
-    else:
+    elif args.dataset == "pems":
         A, X, means, stds = load_pems_d7_data()
+    else:
+        A, X, means, stds = load_pems_m_data()
 
     split_line1 = int(X.shape[2] * 0.6)
     split_line2 = int(X.shape[2] * 0.8)
@@ -310,7 +321,8 @@ if __name__ == '__main__':
     net.init_data(
         training_input, training_target,
         val_input, val_target,
-        test_input, test_target
+        test_input, test_target,
+        means[0], stds[0]
     )
 
     net.init_graph(edge_index, edge_weight)
