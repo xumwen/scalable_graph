@@ -47,6 +47,7 @@ class STConfig(BaseConfig):
         self.lr = 1e-3  # the learning rate
         self.rep_eval = 1  # do evaluation for multiple times
         self.use_statics = False # use data mean and std to calculate pred and label loss in evaluation
+        self.loss_criterion = 'mse' # choices: mse, mae
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
@@ -206,7 +207,8 @@ class SpatialTemporalTask(BasePytorchTask):
         self.log('Intialize {}'.format(self.__class__))
 
         self.init_data()
-        self.loss_func = nn.MSELoss()
+        self.loss_func = {'mse': nn.MSELoss(), 'mae': nn.L1Loss()}\
+            .get(config.loss_criterion)
 
         self.log('Config:\n{}'.format(
             json.dumps(self.config.to_dict(), ensure_ascii=False, indent=4)
