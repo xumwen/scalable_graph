@@ -47,7 +47,7 @@ class STConfig(BaseConfig):
         self.lr = 1e-3  # the learning rate
         self.rep_eval = 1  # do evaluation for multiple times
         self.use_statics = False # use data mean and std to calculate pred and label loss in evaluation
-        self.loss_criterion = 'mse' # choices: mse, mae
+        self.eval_loss = 'mae' # choices: mse, mae
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
@@ -207,8 +207,7 @@ class SpatialTemporalTask(BasePytorchTask):
         self.log('Intialize {}'.format(self.__class__))
 
         self.init_data()
-        self.loss_func = {'mse': nn.MSELoss(), 'mae': nn.L1Loss()}\
-            .get(config.loss_criterion)
+        self.loss_func = nn.MSELoss()
 
         self.log('Config:\n{}'.format(
             json.dumps(self.config.to_dict(), ensure_ascii=False, indent=4)
@@ -317,10 +316,7 @@ class SpatialTemporalTask(BasePytorchTask):
         y_hat = self.model(X, g)
         assert(y.size() == y_hat.size())
         loss = self.loss_func(y_hat, y)
-        if self.config.use_statics:
-            y_hat = y_hat * self.std + self.mean
-            y = y * self.std + self.mean
-        loss_i = self.loss_func(y_hat, y).item()  # scalar loss
+        loss_i = loss.item()  # scalar loss
 
         return {
             LOSS_KEY: loss,
@@ -380,7 +376,10 @@ class SpatialTemporalTask(BasePytorchTask):
             pred = pred * self.std + self.mean
             label = label * self.std + self.mean
 
-        loss = np.mean((pred.values - label.values) ** 2)
+        if self.config.eval_loss == 'mse':
+            loss = np.mean((pred.values - label.values) ** 2)
+        else:
+            loss = np.mean(np.abs(pred.values - label.values))
 
         out = {
             BAR_KEY: {'{}_loss'.format(tag): loss},
