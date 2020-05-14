@@ -39,14 +39,14 @@ class STConfig(BaseConfig):
         self.gcn = 'gat'  # choices: sage, gat, egnn
 
         # per-gpu training batch size, real_batch_size = batch_size * num_gpus * grad_accum_steps
-        self.batch_size = 32
+        self.batch_size = 8
         self.val_batchsize = 8
         self.normalize = 'none'
         self.num_timesteps_input = 12  # the length of the input time-series sequence
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
         self.rep_eval = 1  # do evaluation for multiple times
-        self.use_statics = False # use data mean and std to calculate pred and label loss in evaluation
+        self.use_statics = True # use data mean and std to calculate pred and label loss in evaluation
         self.eval_loss = 'mae' # choices: mse, mae
 
         # pretrained ckpt for krnn, use 'none' to ignore it

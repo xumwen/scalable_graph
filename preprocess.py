@@ -200,8 +200,9 @@ def load_pems_d7_data(directory="data/PeMS-D7"):
     X = np.load(directory + "/node_values.npy")
     X = X.astype(np.float32)
     # to avoid OOM and only load a part
-    percent = 0.5
-    X = X[:, :, :int(percent * X.shape[2])]
+    percent = 0.1
+    start = 0.4
+    X = X[:, :, int(start * X.shape[2]):int((start + percent) * X.shape[2])]
     print('(num_nodes, num_features, num_timesteps) is ', X.shape)
     
     # Normalization using Z-score method
