@@ -39,8 +39,8 @@ class STConfig(BaseConfig):
         self.gcn = 'gat'  # choices: sage, gat, egnn
 
         # per-gpu training batch size, real_batch_size = batch_size * num_gpus * grad_accum_steps
-        self.batch_size = 8
-        self.val_batchsize = 8
+        self.batch_size = 32
+        self.val_batchsize = 32
         self.normalize = 'none'
         self.num_timesteps_input = 12  # the length of the input time-series sequence
         self.num_timesteps_output = 3  # the length of the output time-series sequence
@@ -48,6 +48,8 @@ class STConfig(BaseConfig):
         self.rep_eval = 1  # do evaluation for multiple times
         self.use_statics = False # use data mean and std to calculate pred and label loss in evaluation
         self.eval_loss = 'mse' # choices: mse, mae
+        self.neighbor_num = 5
+        self.neighbor_batchsize = 100
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
@@ -62,7 +64,7 @@ def get_model_class(model):
 
 
 class NeighborSampleDataset(IterableDataset):
-    def __init__(self, X, y, edge_index, edge_weight, num_nodes, batch_size, shuffle=False, use_dist_sampler=False, rep_eval=None):
+    def __init__(self, X, y, edge_index, edge_weight, num_nodes, batch_size, neighbor_num, neighbor_batchsize, shuffle=False, use_dist_sampler=False, rep_eval=None):
         self.X = X
         self.y = y
 
@@ -70,6 +72,8 @@ class NeighborSampleDataset(IterableDataset):
         self.edge_weight = edge_weight
         self.num_nodes = num_nodes
         self.batch_size = batch_size
+        self.neighbor_num = neighbor_num
+        self.neighbor_batchsize = neighbor_batchsize
         self.shuffle = shuffle
         # whether to use distributed sampler when available
         self.use_dist_sampler = use_dist_sampler
@@ -88,8 +92,8 @@ class NeighborSampleDataset(IterableDataset):
         ).to('cpu')
 
         graph_sampler = NeighborSampler(
-            graph, size=[5, 5], num_hops=2, batch_size=100, shuffle=self.shuffle, add_self_loops=True
-            # graph, size=[10, 15], num_hops=2, batch_size=250, shuffle=self.shuffle, add_self_loops=True
+            graph, size=[self.neighbor_num, self.neighbor_num], num_hops=2, 
+            batch_size=self.neighbor_batchsize, shuffle=self.shuffle, add_self_loops=True
         )
 
         return graph_sampler
@@ -265,26 +269,38 @@ class SpatialTemporalTask(BasePytorchTask):
         self.log('Average degree: {:.3f}'.format(
             self.config.num_edges / self.config.num_nodes))
 
-    def make_sample_dataloader(self, X, y, batch_size, shuffle=False, use_dist_sampler=False, rep_eval=None):
+    def make_sample_dataloader(self, X, y, batch_size, neighbor_num, neighbor_batchsize, shuffle=False, use_dist_sampler=False, rep_eval=None):
         # return a data loader based on neighbor sampling
         dataset = NeighborSampleDataset(
             X, y, self.edge_index, self.edge_weight, self.config.num_nodes, batch_size,
-            shuffle=shuffle, use_dist_sampler=use_dist_sampler, rep_eval=rep_eval
+            neighbor_num=neighbor_num, neighbor_batchsize=neighbor_batchsize,
+            shuffle=shuffle, use_dist_sampler=use_dist_sampler, rep_eval=rep_eval,
+            
         )
 
         return DataLoader(dataset, batch_size=None)
 
     def build_train_dataloader(self):
         return self.make_sample_dataloader(
-            self.training_input, self.training_target, batch_size=self.config.batch_size, shuffle=True, use_dist_sampler=True
+            self.training_input, self.training_target, batch_size=self.config.batch_size, 
+            neighbor_num=self.config.neighbor_num, neighbor_batchsize=self.config.neighbor_batchsize,
+            shuffle=True, use_dist_sampler=True
         )
 
     def build_val_dataloader(self):
         # use a small batch size to test the normalization methods (BN/LN)
-        return self.make_sample_dataloader(self.val_input, self.val_target, batch_size=self.config.val_batchsize, rep_eval=self.config.rep_eval)
+        return self.make_sample_dataloader(
+            self.val_input, self.val_target, batch_size=self.config.val_batchsize, 
+            neighbor_num=self.config.neighbor_num, neighbor_batchsize=self.config.neighbor_batchsize,
+            rep_eval=self.config.rep_eval
+        )
 
     def build_test_dataloader(self):
-        return self.make_sample_dataloader(self.test_input, self.test_target, batch_size=self.config.val_batchsize, rep_eval=self.config.rep_eval)
+        return self.make_sample_dataloader(
+            self.test_input, self.test_target, batch_size=self.config.val_batchsize, 
+            neighbor_num=self.config.neighbor_num, neighbor_batchsize=self.config.neighbor_batchsize,
+            rep_eval=self.config.rep_eval
+        )
 
     def build_optimizer(self, model):
         return torch.optim.Adam(self.model.parameters(), lr=self.config.lr)
