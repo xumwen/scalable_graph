@@ -46,8 +46,8 @@ class STConfig(BaseConfig):
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
         self.rep_eval = 1  # do evaluation for multiple times
-        self.use_statics = True # use data mean and std to calculate pred and label loss in evaluation
-        self.eval_loss = 'mae' # choices: mse, mae
+        self.use_statics = False # use data mean and std to calculate pred and label loss in evaluation
+        self.eval_loss = 'mse' # choices: mse, mae
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
