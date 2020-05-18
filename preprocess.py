@@ -268,11 +268,17 @@ def get_pems_node_value(directory, node_dict, data_dir='./txt'):
     num_features = 3
     X = np.zeros((num_timesteps, num_nodes, num_features))
     
+    # only use weekday data
+    weekday_cnt = 0
     for delta in range(day_delta):
         cur_date = start_date + relativedelta(days = delta)
-        time_start = delta * day_slots
-        time_end = time_start + day_slots
-        X[time_start:time_end] = read_pems_daily_data(data_dir, cur_date, node_dict)
+        if cur_date.isoweekday() <= 5:
+            time_start = weekday_cnt * day_slots
+            time_end = time_start + day_slots
+            X[time_start:time_end] = read_pems_daily_data(data_dir, cur_date, node_dict)
+            weekday_cnt += 1
+    num_timesteps = weekday_cnt * day_slots
+    X = X[:num_timesteps]
     
     # get valid nodes by remove nodes with label nan morn than a certain percentage
     percentage = 0.2
