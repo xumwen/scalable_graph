@@ -19,7 +19,7 @@ import pandas as pd
 from tgcn import TGCN
 from sandwich import Sandwich
 
-from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, get_normalized_adj
+from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, load_pems_m_data, get_normalized_adj
 from base_task import add_config_to_argparse, BaseConfig, BasePytorchTask, \
     LOSS_KEY, BAR_KEY, SCALAR_LOG_KEY, VAL_SCORE_KEY
 
@@ -33,7 +33,7 @@ class STConfig(BaseConfig):
 
         # 2. set spatial-temporal config variables:
         self.model = 'sandwich'  # choices: tgcn, stgcn, gwnet
-        self.dataset = 'metr'  # choices: metr, nyc, pems
+        self.dataset = 'metr'  # choices: metr, nyc, pems, pems-m
         # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
         self.data_dir = './data/METR-LA'
         self.gcn = 'gat'  # choices: sage, gat, egnn
@@ -225,24 +225,38 @@ class SpatialTemporalTask(BasePytorchTask):
             A, X, means, stds = load_metr_la_data(data_dir)
         elif self.config.dataset == "nyc":
             A, X, means, stds = load_nyc_sharing_bike_data(data_dir)
-        else:
+        elif self.config.dataset == "pems":
             A, X, means, stds = load_pems_d7_data(data_dir)
+        elif self.config.dataset == "pems-m":
+            A, X, means, stds = load_pems_m_data(data_dir)
 
-        split_line1 = int(X.shape[2] * 0.6)
-        split_line2 = int(X.shape[2] * 0.8)
-        train_original_data = X[:, :, :split_line1]
-        val_original_data = X[:, :, split_line1:split_line2]
-        test_original_data = X[:, :, split_line2:]
+        X, y = generate_dataset(X, 
+            num_timesteps_input=self.config.num_timesteps_input, 
+            num_timesteps_output=self.config.num_timesteps_output,
+            dataset = self.config.dataset)
 
-        self.training_input, self.training_target = generate_dataset(train_original_data,
-                                                                     num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
-                                                                     )
-        self.val_input, self.val_target = generate_dataset(val_original_data,
-                                                           num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
-                                                           )
-        self.test_input, self.test_target = generate_dataset(test_original_data,
-                                                             num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
-                                                             )
+        split_line1 = int(X.shape[0] * 0.6)
+        split_line2 = int(X.shape[0] * 0.8)
+
+        self.training_input, self.training_target = X[:split_line1], y[:split_line1]
+        self.val_input, self.val_target = X[split_line1:split_line2], y[split_line1:split_line2]
+        self.test_input, self.test_target = X[split_line2:], y[split_line2:]
+
+        # split_line1 = int(X.shape[2] * 0.6)
+        # split_line2 = int(X.shape[2] * 0.8)
+        # train_original_data = X[:, :, :split_line1]
+        # val_original_data = X[:, :, split_line1:split_line2]
+        # test_original_data = X[:, :, split_line2:]
+
+        # self.training_input, self.training_target = generate_dataset(train_original_data,
+        #                                                              num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
+        #                                                              )
+        # self.val_input, self.val_target = generate_dataset(val_original_data,
+        #                                                    num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
+        #                                                    )
+        # self.test_input, self.test_target = generate_dataset(test_original_data,
+        #                                                      num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
+        #                                                      )
 
         self.A = torch.from_numpy(A)
         self.sparse_A = self.A.to_sparse()
@@ -323,11 +337,6 @@ class SpatialTemporalTask(BasePytorchTask):
 
     def train_step(self, batch, batch_idx):
         X, y, g, rows = batch
-        # debug distributed sampler
-        # if batch_idx == 0:
-        #     self.log('train batch {} indices: {}'.format(batch_idx, rows))
-        #     self.log('train batch {} g.cent_n_id: {}'.format(batch_idx, g['cent_n_id']))
-        #     self.log('train batch {} g.graph_n_id: {}'.format(batch_idx, g['graph_n_id']))
 
         y_hat = self.model(X, g)
         assert(y.size() == y_hat.size())
@@ -342,11 +351,6 @@ class SpatialTemporalTask(BasePytorchTask):
 
     def eval_step(self, batch, batch_idx, tag):
         X, y, g, rows = batch
-        # debug repetitive evaluation
-        # if batch_idx == 0:
-        #     self.log('{} batch {} indices: {}'.format(tag, batch_idx, rows))
-        #     self.log('{} batch {} g.cent_n_id: {}'.format(tag, batch_idx, g['cent_n_id']))
-        #     self.log('{} batch {} g.graph_n_id: {}'.format(tag, batch_idx, g['graph_n_id']))
 
         y_hat = self.model(X, g)
         assert(y.size() == y_hat.size())

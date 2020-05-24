@@ -384,7 +384,7 @@ def get_normalized_adj(A):
     return A_wave
 
 
-def generate_dataset(X, num_timesteps_input, num_timesteps_output):
+def generate_dataset(X, num_timesteps_input, num_timesteps_output, dataset):
     """
     Takes node features for the graph and divides them into multiple samples
     along the time-axis by sliding a window of size (num_timesteps_input+
@@ -397,19 +397,32 @@ def generate_dataset(X, num_timesteps_input, num_timesteps_output):
         - Node targets for the samples. Shape is
           (num_samples, num_vertices, num_timesteps_output).
     """
-    # Generate the beginning index and the ending index of a sample, which
-    # contains (num_points_for_training + num_points_for_predicting) points
-    indices = [(i, i + (num_timesteps_input + num_timesteps_output)) for i
-               in range(X.shape[2] - (
-                num_timesteps_input + num_timesteps_output) + 1)]
+    
+    # PeMS only use weekday data and a day contains 288 slots(5min per slot)
+    if dataset == "pems" or dataset == "pems-m":
+        day_slots = 288
+    else:
+        day_slots = X.shape[2]
 
     # Save samples
     features, target = [], []
-    for i, j in indices:
-        features.append(
-            X[:, :, i: i + num_timesteps_input].transpose(
-                (0, 2, 1)))
-        target.append(X[:, 0, i + num_timesteps_input: j])
+    for day in range(X.shape[2] // day_slots):
+        day_start = day_slots * day
+        day_end = day_slots * (day+1)
+        X_day = X[:, :, day_start:day_end]
+        # Generate the beginning index and the ending index of a sample, which
+        # contains (num_points_for_training + num_points_for_predicting) points
+        indices = [(i, i + (num_timesteps_input + num_timesteps_output)) for i
+                in range(X_day.shape[2] - (
+                    num_timesteps_input + num_timesteps_output) + 1)]
+        
+        for i, j in indices:
+            features.append(
+                X_day[:, :, i: i + num_timesteps_input].transpose(
+                    (0, 2, 1)))
+            target.append(X_day[:, 0, i + num_timesteps_input: j])
 
     return torch.from_numpy(np.array(features)), \
            torch.from_numpy(np.array(target))
+
+
