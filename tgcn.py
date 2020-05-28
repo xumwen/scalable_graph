@@ -34,9 +34,7 @@ class GCNBlock(nn.Module):
 
 
 class TGCN(nn.Module):
-    def __init__(self, num_nodes, num_edges, num_features,
-                 num_timesteps_input, num_timesteps_output,
-                 gcn_type='sage', hidden_size=64, normalize='none', **kwargs):
+    def __init__(self, config):
         """
         :param num_nodes: Number of nodes in the graph.
         :param num_features: Number of features at each node in each time step.
@@ -46,6 +44,15 @@ class TGCN(nn.Module):
         output by the network.
         """
         super(TGCN, self).__init__()
+
+        num_nodes = getattr(config, 'num_nodes')
+        num_features = getattr(config, 'num_features')
+        num_timesteps_input = getattr(config, 'num_timesteps_input')
+        num_timesteps_output = getattr(config, 'num_timesteps_output')
+
+        hidden_size = getattr(config, 'hidden_size', 64)
+        gcn_type = getattr(config, 'gcn', 'gat')
+        normalize = getattr(config, 'normalize', 'none')
 
         self.gcn = GCNBlock(in_channels=num_features,
                             spatial_channels=hidden_size,
@@ -63,7 +70,7 @@ class TGCN(nn.Module):
         num_features=in_channels).
         :param A_hat: Normalized adjacency matrix.
         """
-        out1 = self.gcn(X, g)
-        out2 = self.gru(out1, g['cent_n_id'])
+        gcn_out = self.gcn(X, g)
+        gru_out = self.gru(gcn_out, g['cent_n_id'])
 
-        return out2
+        return gru_out
