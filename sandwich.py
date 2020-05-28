@@ -65,12 +65,12 @@ class Sandwich(nn.Module):
             self.gru1 = KRNN(num_nodes, num_features, num_timesteps_input,
                              num_timesteps_output=None, hidden_size=hidden_size)
 
-        self.gcn = GCNBlock(in_channels=hidden_size,
-                            spatial_channels=hidden_size,
-                            num_nodes=num_nodes,
-                            gcn_type=gcn_type,
-                            normalize=normalize
-                            )
+        # self.gcn = GCNBlock(in_channels=hidden_size,
+        #                     spatial_channels=hidden_size,
+        #                     num_nodes=num_nodes,
+        #                     gcn_type=gcn_type,
+        #                     normalize=normalize
+        #                     )
 
         self.gru = KRNN(num_nodes, hidden_size, num_timesteps_input,
                         num_timesteps_output, hidden_size)
@@ -82,7 +82,8 @@ class Sandwich(nn.Module):
         :param A_hat: Normalized adjacency matrix.
         """
         encoder_out, decoder_residual = self.gru1(X, g['graph_n_id'])
-        gcn_out = self.gcn(encoder_out, g)
+        # gcn_out = self.gcn(encoder_out, g)
+        gcn_out = encoder_out
 
         _, decoder_out = self.gru(gcn_out, g['cent_n_id'])
         decoder_out = decoder_out.squeeze(dim=-1)

@@ -28,7 +28,7 @@ class STConfig(BaseConfig):
     def __init__(self):
         super(STConfig, self).__init__()
         # 1. Reset base config variables:
-        self.max_epochs = 1000
+        self.max_epochs = 100
         self.early_stop_epochs = 30
 
         # 2. set spatial-temporal config variables:
