@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from gcn import SAGENet, GATNet, GatedGCNNet, EGNNNet
 from krnn import KRNN
+from gru import GRUBlock
 
 from torch_geometric.data import Data, Batch, DataLoader, NeighborSampler, ClusterData, ClusterLoader
 
@@ -62,8 +63,10 @@ class TGCN(nn.Module):
                             normalize=normalize
                             )
 
-        self.gru = KRNN(num_nodes, hidden_size, num_timesteps_input,
-                        num_timesteps_output, hidden_size)
+        # self.gru = KRNN(num_nodes, hidden_size, num_timesteps_input,
+        #                 num_timesteps_output, hidden_size)
+        self.gru = GRUBlock(hidden_size, hidden_size, num_timesteps_input,
+                            num_timesteps_output)
 
     def forward(self, X, g):
         """
@@ -72,6 +75,6 @@ class TGCN(nn.Module):
         :param A_hat: Normalized adjacency matrix.
         """
         gcn_out = self.gcn(X, g)
-        _, gru_out = self.gru(gcn_out, g['cent_n_id'])
+        gru_out = self.gru(gcn_out)
 
         return gru_out
