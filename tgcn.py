@@ -54,6 +54,7 @@ class TGCN(nn.Module):
 
         hidden_size = getattr(config, 'hidden_size', 64)
         gcn_type = getattr(config, 'gcn', 'gat')
+        self.rnn_type = getattr(config, 'rnn', 'gru')
         normalize = getattr(config, 'normalize', 'none')
 
         self.gcn = GCNBlock(in_channels=num_features,
@@ -63,10 +64,12 @@ class TGCN(nn.Module):
                             normalize=normalize
                             )
 
-        # self.gru = KRNN(num_nodes, hidden_size, num_timesteps_input,
-        #                 num_timesteps_output, hidden_size)
-        self.gru = GRUBlock(hidden_size, hidden_size, num_timesteps_input,
-                            num_timesteps_output)
+        if self.rnn_type == 'gru':
+            self.gru = GRUBlock(hidden_size, hidden_size, num_timesteps_input,
+                                num_timesteps_output)
+        else:
+            self.krnn = KRNN(num_nodes, hidden_size, num_timesteps_input,
+                            num_timesteps_output, hidden_size)
 
     def forward(self, X, g):
         """
@@ -75,6 +78,9 @@ class TGCN(nn.Module):
         :param A_hat: Normalized adjacency matrix.
         """
         gcn_out = self.gcn(X, g)
-        gru_out = self.gru(gcn_out)
+        if self.rnn_type == 'gru':
+            rnn_out = self.gru(gcn_out)
+        else:
+            _, rnn_out = self.krnn(gcn_out, g['cent_n_id'])
 
-        return gru_out
+        return rnn_out

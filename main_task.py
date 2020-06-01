@@ -37,10 +37,11 @@ class STConfig(BaseConfig):
         # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
         self.data_dir = './data/PEMS-D7'
         self.gcn = 'egnn'  # choices: sage, gat, egnn
+        self.rnn = 'gru'   # choices: gru, krnn
 
         # per-gpu training batch size, real_batch_size = batch_size * num_gpus * grad_accum_steps
-        self.batch_size = 32
-        self.val_batchsize = 32
+        self.batch_size = 8
+        self.val_batchsize = 8
         self.normalize = 'none'
         self.num_timesteps_input = 12  # the length of the input time-series sequence
         self.num_timesteps_output = 3  # the length of the output time-series sequence
