@@ -29,14 +29,14 @@ class STConfig(BaseConfig):
         super(STConfig, self).__init__()
         # 1. Reset base config variables:
         self.max_epochs = 100
-        self.early_stop_epochs = 30
+        self.early_stop_epochs = 20
 
         # 2. set spatial-temporal config variables:
-        self.model = 'sandwich'  # choices: tgcn, stgcn, gwnet
-        self.dataset = 'metr'  # choices: metr, nyc, pems, pems-m
+        self.model = 'tgcn'  # choices: tgcn, stgcn, gwnet
+        self.dataset = 'pems'  # choices: metr, nyc, pems, pems-m
         # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
-        self.data_dir = './data/METR-LA'
-        self.gcn = 'gat'  # choices: sage, gat, egnn
+        self.data_dir = './data/PEMS-D7'
+        self.gcn = 'egnn'  # choices: sage, gat, egnn
 
         # per-gpu training batch size, real_batch_size = batch_size * num_gpus * grad_accum_steps
         self.batch_size = 32
