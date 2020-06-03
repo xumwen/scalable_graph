@@ -28,7 +28,7 @@ class STConfig(BaseConfig):
     def __init__(self):
         super(STConfig, self).__init__()
         # 1. Reset base config variables:
-        self.max_epochs = 100
+        self.max_epochs = 200
         self.early_stop_epochs = 20
 
         # 2. set spatial-temporal config variables:
@@ -36,12 +36,12 @@ class STConfig(BaseConfig):
         self.dataset = 'pems'  # choices: metr, nyc, pems, pems-m
         # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
         self.data_dir = './data/PEMS-D7'
-        self.gcn = 'egnn'  # choices: sage, gat, egnn
+        self.gcn = 'gat'  # choices: sage, gat, egnn
         self.rnn = 'gru'   # choices: gru, krnn
 
         # per-gpu training batch size, real_batch_size = batch_size * num_gpus * grad_accum_steps
-        self.batch_size = 8
-        self.val_batchsize = 8
+        self.batch_size = 32
+        self.val_batchsize = 32
         self.normalize = 'none'
         self.num_timesteps_input = 12  # the length of the input time-series sequence
         self.num_timesteps_output = 3  # the length of the output time-series sequence
@@ -50,11 +50,11 @@ class STConfig(BaseConfig):
         self.use_statics = False # use data mean and std to calculate pred and label loss in evaluation
         self.eval_loss = 'mse' # choices: mse, mae
         self.neighbor_num = 5
-        self.neighbor_batchsize = 100
+        self.neighbor_batchsize = 50
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
-        self.use_residual = True
+        self.use_residual = False
 
 
 def get_model_class(model):
