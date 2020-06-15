@@ -243,28 +243,13 @@ class SpatialTemporalTask(BasePytorchTask):
         self.val_input, self.val_target = X[split_line1:split_line2], y[split_line1:split_line2]
         self.test_input, self.test_target = X[split_line2:], y[split_line2:]
 
-        # split_line1 = int(X.shape[2] * 0.6)
-        # split_line2 = int(X.shape[2] * 0.8)
-        # train_original_data = X[:, :, :split_line1]
-        # val_original_data = X[:, :, split_line1:split_line2]
-        # test_original_data = X[:, :, split_line2:]
-
-        # self.training_input, self.training_target = generate_dataset(train_original_data,
-        #                                                              num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
-        #                                                              )
-        # self.val_input, self.val_target = generate_dataset(val_original_data,
-        #                                                    num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
-        #                                                    )
-        # self.test_input, self.test_target = generate_dataset(test_original_data,
-        #                                                      num_timesteps_input=self.config.num_timesteps_input, num_timesteps_output=self.config.num_timesteps_output
-        #                                                      )
-
         self.A = torch.from_numpy(A)
         self.sparse_A = self.A.to_sparse()
         self.edge_index = self.sparse_A._indices()
         self.edge_weight = self.sparse_A._values()
         self.mean = means[0]
         self.std = stds[0]
+        self.error_cnt = np.zeros(A.shape[0])
 
         contains_self_loops = torch_geometric.utils.contains_self_loops(
             self.edge_index)
