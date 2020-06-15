@@ -47,8 +47,6 @@ class STConfig(BaseConfig):
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
         self.rep_eval = 1  # do evaluation for multiple times
-        self.use_statics = False # use data mean and std to calculate pred and label loss in evaluation
-        self.eval_loss = 'mse' # choices: mse, mae
         self.neighbor_num = 5
         self.neighbor_batchsize = 50
 
@@ -249,7 +247,6 @@ class SpatialTemporalTask(BasePytorchTask):
         self.edge_weight = self.sparse_A._values()
         self.mean = means[0]
         self.std = stds[0]
-        self.error_cnt = np.zeros(A.shape[0])
 
         contains_self_loops = torch_geometric.utils.contains_self_loops(
             self.edge_index)
