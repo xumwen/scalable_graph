@@ -135,14 +135,14 @@ class SpatialTemporalTask(BasePytorchTask):
         self.log('Average degree: {:.3f}'.format(
             self.config.num_edges / self.config.num_nodes))
         
-        self.node_emb = self.register_parameter('node_emb', torch.zeros(self.config.num_nodes, self.config.hidden_size))
+        self.node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
 
-    def make_sample_dataloader(self, X, y, batch_size, neighbor_num, neighbor_batchsize, shuffle=False):
+    def make_sample_dataloader(self, X, y, batch_size, shuffle=False):
         # return a data loader based on meta sampling
         dataset = MetaSamplerDataset(
             X, y, self.config.num_nodes, self.node_emb,
             self.edge_index, self.edge_weight, batch_size, 
-            subgraph_nodes, shuffle
+            self.config.subgraph_nodes, shuffle
         )
 
         return DataLoader(dataset, batch_size=None)
@@ -150,26 +150,20 @@ class SpatialTemporalTask(BasePytorchTask):
     def build_train_dataloader(self):
         return self.make_sample_dataloader(
             self.training_input, self.training_target, 
-            self.config.num_nodes, self.node_emb,
-            self.edge_index, self.edge_weight, batch_size, 
-            subgraph_nodes, shuffle=True
+            self.config.batch_size, shuffle=True
         )
 
     def build_val_dataloader(self):
         # use a small batch size to test the normalization methods (BN/LN)
         return self.make_sample_dataloader(
             self.val_input, self.val_target, 
-            self.config.num_nodes, self.node_emb,
-            self.edge_index, self.edge_weight, batch_size, 
-            subgraph_nodes, shuffle=True
+            self.config.val_batchsize, shuffle=True
         )
 
     def build_test_dataloader(self):
         return self.make_sample_dataloader(
             self.test_input, self.test_target, 
-            self.config.num_nodes, self.node_emb,
-            self.edge_index, self.edge_weight, batch_size, 
-            subgraph_nodes, shuffle=True
+            self.config.val_batchsize, shuffle=True
         )
 
     def build_optimizer(self, model):

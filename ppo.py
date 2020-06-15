@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.distributions import Normal
 
 import numpy as np
 import pandas as pd
@@ -92,9 +93,9 @@ class PPO:
 
 
 class ActorDemo(nn.Module):
-    def __init__(self, state_size, output_size):
+    def __init__(self, state_size):
+        super(ActorDemo, self).__init__()
         self.state_size = state_size
-        self.output_size = output_size
         self.build_actor()
 
     def build_actor(self):
@@ -102,7 +103,7 @@ class ActorDemo(nn.Module):
             nn.Linear(self.state_size, 64),
             nn.LeakyReLU(),
             nn.Linear(64, 32),
-            nn.LeakyReLU(),
+            nn.LeakyReLU()
         )
         self.mu_mean = nn.Linear(32, 1)
         self.mu_log_std = nn.Linear(32, 1)

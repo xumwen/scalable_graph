@@ -3,6 +3,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from torch.utils.data import IterableDataset
+from torch.distributions import Normal
+
 import numpy as np
 import pandas as pd
 
@@ -20,41 +23,42 @@ class MetaSampler(object):
 
         self.node_visit = np.zeros(num_nodes)
 
-        self.model = ActorDemo()
+        self.state_size = node_emb.shape[1] * 2
+        self.model = ActorDemo(state_size=self.state_size)
         # self.model = PPO()
     
     def __get_init_nodes__(self, num_init_nodes=10):
-        subset = np.where(node_visit == 0)
-        if len(subset <= num_init_nodes):
-            return subset
+        left_nodes = np.where(self.node_visit == 0)
+        if len(left_nodes) <= num_init_nodes:
+            return left_nodes
         if self.shuffle:
-            np.random.shuffle(subset)
+            np.random.shuffle(left_nodes)
 
-        return subset[:num_init_nodes]
+        return left_nodes[:num_init_nodes]
 
     def __produce_subgraph__(self, n_id, subgraph_nodes, steps=2):
         row, col = self.edge_index
         node_mask = torch.zeros(self.num_nodes, dtype=torch.bool)
         edge_mask = torch.zeros(row.size(0), dtype=torch.bool)
         
-        for i in sample_step:
+        for i in range(self.sample_step):
             node_mask[n_id] = True
             torch.index_select(node_mask, 0, row, out=edge_mask)
             new_n_id = col[edge_mask].numpy()
             neighbor_id = np.setdiff1d(new_n_id, n_id)
 
             # use ppo to take action
-            cent_emb = torch.sum(node_emb[n_id])
-            neighbor_emb = torch.sum(node_emb[neighbor_id])
+            cent_emb = self.node_emb[n_id].sum(dim=0)
+            neighbor_emb = self.node_emb[neighbor_id].sum(dim=0)
             s = torch.cat([cent_emb, neighbor_emb], dim=0)
             mu1, sigma1, prob = self.model.action(s)
 
             # calculate kl-divergense to sample nodes
-            mu2 = node_emb[neighbor_id].mean(dim=1)
-            sigma2 = node_emb[neighbor_id].std(dim=1)
+            mu2 = self.node_emb[neighbor_id].mean(dim=1)
+            sigma2 = self.node_emb[neighbor_id].std(dim=1)
             kl_div = (sigma2 / sigma1).log() + (sigma1**2 + (mu1 - mu2)**2) / (2 * sigma2**2) - 0.5
             weight = torch.exp(-kl_div)
-            sample_n_id = neighbor_id[torch.bernoulli(weight) == 1].numpy()
+            sample_n_id = neighbor_id[torch.bernoulli(weight) == 1]
 
             n_id = np.union1d(n_id, sample_n_id)
             if len(n_id) >= subgraph_nodes:
@@ -98,7 +102,7 @@ class MetaSamplerDataset(IterableDataset):
         g = {
             'edge_index': self.edge_index[:, e_id],
             'edge_weight': self.edge_weight[e_id],
-            'n_id': n_id
+            'n_id': n_id,
             'cent_n_id': n_id
         }
 
@@ -124,7 +128,7 @@ class MetaSamplerDataset(IterableDataset):
     def get_length(self):
         length = 0
 
-        for data_flow in self.graph_sampler():
+        for _, _ in self.meta_sampler():
             num_samples_per_node = self.X.size(0)
             length += (num_samples_per_node +
                     self.batch_size - 1) // self.batch_size
