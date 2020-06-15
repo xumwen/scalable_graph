@@ -37,9 +37,9 @@ parser.add_argument('--gpus', type=int, default=1,
 parser.add_argument('-m', "--model", choices=['tgcn', 'stgcn', 'gwnet', 'sandwich'],
                     help='Choose Spatial-Temporal model', default='tgcn')
 parser.add_argument('-d', "--dataset", choices=["metr", "nyc", "pems", "pems-m"],
-                    help='Choose dataset', default='metr')
+                    help='Choose dataset', default='nyc')
 parser.add_argument('-t', "--gcn-type", choices=['sage', 'graph', 'gat', 'sagela', 'gated', 'egnn'],
-                    help='Choose GCN Conv Type', default='egnn')
+                    help='Choose GCN Conv Type', default='gat')
 parser.add_argument('-part', "--gcn-partition", choices=['cluster', 'sample'],
                     help='Choose GCN partition method',
                     default='sample')
@@ -280,22 +280,18 @@ if __name__ == '__main__':
     else:
         A, X, means, stds = load_pems_m_data()
 
-    split_line1 = int(X.shape[2] * 0.6)
-    split_line2 = int(X.shape[2] * 0.8)
+    X, y = generate_dataset(X, 
+            num_timesteps_input=num_timesteps_input, 
+            num_timesteps_output=num_timesteps_output,
+            dataset = args.dataset)
 
-    train_original_data = X[:, :, :split_line1]
-    val_original_data = X[:, :, split_line1:split_line2]
-    test_original_data = X[:, :, split_line2:]
+    split_line1 = int(X.shape[0] * 0.6)
+    split_line2 = int(X.shape[0] * 0.8)
 
-    training_input, training_target = generate_dataset(train_original_data,
-                                                       num_timesteps_input=num_timesteps_input,
-                                                       num_timesteps_output=num_timesteps_output)
-    val_input, val_target = generate_dataset(val_original_data,
-                                             num_timesteps_input=num_timesteps_input,
-                                             num_timesteps_output=num_timesteps_output)
-    test_input, test_target = generate_dataset(test_original_data,
-                                               num_timesteps_input=num_timesteps_input,
-                                               num_timesteps_output=num_timesteps_output)
+    training_input, training_target = X[:split_line1], y[:split_line1]
+    val_input, val_target = X[split_line1:split_line2], y[split_line1:split_line2]
+    test_input, test_target = X[split_line2:], y[split_line2:]
+    
     A = torch.from_numpy(A)
     sparse_A = A.to_sparse()
     edge_index = sparse_A._indices()
@@ -335,9 +331,9 @@ if __name__ == '__main__':
     logger = TestTubeLogger(save_dir=log_dir, name=log_name)
 
     trainer = pl.Trainer(
-        gpus=gpus,
+        gpus=[2],
         max_epochs=epochs,
-        distributed_backend='ddp',
+        distributed_backend='dp',
         early_stop_callback=early_stop_callback,
         logger=logger,
         track_grad_norm=2

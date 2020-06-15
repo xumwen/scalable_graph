@@ -200,7 +200,7 @@ def load_pems_d7_data(directory="data/PeMS-D7"):
     X = np.load(directory + "/node_values.npy")
     X = X.astype(np.float32)
     # to avoid OOM and only load a part
-    percent = 0.5
+    percent = 1
     X = X[:, :, :int(percent * X.shape[2])]
     print('(num_nodes, num_features, num_timesteps) is ', X.shape)
     
@@ -268,11 +268,17 @@ def get_pems_node_value(directory, node_dict, data_dir='./txt'):
     num_features = 3
     X = np.zeros((num_timesteps, num_nodes, num_features))
     
+    # only use weekday data
+    weekday_cnt = 0
     for delta in range(day_delta):
         cur_date = start_date + relativedelta(days = delta)
-        time_start = delta * day_slots
-        time_end = time_start + day_slots
-        X[time_start:time_end] = read_pems_daily_data(data_dir, cur_date, node_dict)
+        if cur_date.isoweekday() <= 5:
+            time_start = weekday_cnt * day_slots
+            time_end = time_start + day_slots
+            X[time_start:time_end] = read_pems_daily_data(data_dir, cur_date, node_dict)
+            weekday_cnt += 1
+    num_timesteps = weekday_cnt * day_slots
+    X = X[:num_timesteps]
     
     # get valid nodes by remove nodes with label nan morn than a certain percentage
     percentage = 0.2
@@ -378,7 +384,7 @@ def get_normalized_adj(A):
     return A_wave
 
 
-def generate_dataset(X, num_timesteps_input, num_timesteps_output):
+def generate_dataset(X, num_timesteps_input, num_timesteps_output, dataset):
     """
     Takes node features for the graph and divides them into multiple samples
     along the time-axis by sliding a window of size (num_timesteps_input+
@@ -391,19 +397,32 @@ def generate_dataset(X, num_timesteps_input, num_timesteps_output):
         - Node targets for the samples. Shape is
           (num_samples, num_vertices, num_timesteps_output).
     """
-    # Generate the beginning index and the ending index of a sample, which
-    # contains (num_points_for_training + num_points_for_predicting) points
-    indices = [(i, i + (num_timesteps_input + num_timesteps_output)) for i
-               in range(X.shape[2] - (
-                num_timesteps_input + num_timesteps_output) + 1)]
+    
+    # PeMS only use weekday data and a day contains 288 slots(5min per slot)
+    if dataset == "pems" or dataset == "pems-m":
+        day_slots = 288
+    else:
+        day_slots = X.shape[2]
 
     # Save samples
     features, target = [], []
-    for i, j in indices:
-        features.append(
-            X[:, :, i: i + num_timesteps_input].transpose(
-                (0, 2, 1)))
-        target.append(X[:, 0, i + num_timesteps_input: j])
+    for day in range(X.shape[2] // day_slots):
+        day_start = day_slots * day
+        day_end = day_slots * (day+1)
+        X_day = X[:, :, day_start:day_end]
+        # Generate the beginning index and the ending index of a sample, which
+        # contains (num_points_for_training + num_points_for_predicting) points
+        indices = [(i, i + (num_timesteps_input + num_timesteps_output)) for i
+                in range(X_day.shape[2] - (
+                    num_timesteps_input + num_timesteps_output) + 1)]
+        
+        for i, j in indices:
+            features.append(
+                X_day[:, :, i: i + num_timesteps_input].transpose(
+                    (0, 2, 1)))
+            target.append(X_day[:, 0, i + num_timesteps_input: j])
 
     return torch.from_numpy(np.array(features)), \
            torch.from_numpy(np.array(target))
+
+
