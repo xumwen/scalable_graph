@@ -83,4 +83,4 @@ class TGCN(nn.Module):
         else:
             _, rnn_out = self.krnn(gcn_out, g['cent_n_id'])
 
-        return rnn_out
+        return rnn_out, gcn_out
