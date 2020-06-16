@@ -48,7 +48,7 @@ class STConfig(BaseConfig):
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
         self.rep_eval = 1  # do evaluation for multiple times
-        self.subgraph_nodes = 200 # num nodes of subgraph produced by meta sampler
+        self.subgraph_nodes = 100 # num nodes of subgraph produced by meta sampler
         self.hidden_size = 64 # node embedding size
 
         # pretrained ckpt for krnn, use 'none' to ignore it
@@ -137,33 +137,34 @@ class SpatialTemporalTask(BasePytorchTask):
         
         self.node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
 
-    def make_sample_dataloader(self, X, y, batch_size, shuffle=False):
+    def make_sample_dataloader(self, X, y, batch_size, epoch, shuffle=False):
         # return a data loader based on meta sampling
         dataset = MetaSamplerDataset(
             X, y, self.config.num_nodes, self.node_emb,
             self.edge_index, self.edge_weight, batch_size, 
-            self.config.subgraph_nodes, shuffle
+            self.config.subgraph_nodes, shuffle=shuffle,
+            random_sample=(epoch==1)
         )
 
         return DataLoader(dataset, batch_size=None)
 
-    def build_train_dataloader(self):
+    def build_train_dataloader(self, epoch):
         return self.make_sample_dataloader(
             self.training_input, self.training_target, 
-            self.config.batch_size, shuffle=True
+            self.config.batch_size, epoch, shuffle=True
         )
 
-    def build_val_dataloader(self):
+    def build_val_dataloader(self, epoch):
         # use a small batch size to test the normalization methods (BN/LN)
         return self.make_sample_dataloader(
             self.val_input, self.val_target, 
-            self.config.val_batchsize, shuffle=True
+            self.config.val_batchsize, epoch, shuffle=True
         )
 
-    def build_test_dataloader(self):
+    def build_test_dataloader(self, epoch):
         return self.make_sample_dataloader(
             self.test_input, self.test_target, 
-            self.config.val_batchsize, shuffle=True
+            self.config.val_batchsize, epoch, shuffle=True
         )
 
     def build_optimizer(self, model):
@@ -194,7 +195,7 @@ class SpatialTemporalTask(BasePytorchTask):
         loss_i = loss.item()  # scalar loss
 
         # update node embedding for meta sampler
-        self.node_emb[g['cent_n_id']] += node_emb.mean(dim=[0, 2])
+        self.node_emb[g['n_id']] += node_emb.mean(dim=[0, 2]).to('cpu')
 
         return {
             LOSS_KEY: loss,
@@ -207,26 +208,26 @@ class SpatialTemporalTask(BasePytorchTask):
 
         y_hat, node_emb = self.model(X, g)
         assert(y.size() == y_hat.size())
-        self.node_emb[g['cent_n_id']] += node_emb.mean(dim=[0, 2])
+        self.node_emb[g['n_id']] += node_emb.mean(dim=[0, 2]).to('cpu')
 
         out_dim = y.size(-1)
 
         index_ptr = torch.cartesian_prod(
             torch.arange(rows.size(0)),
-            torch.arange(g['cent_n_id'].size(0)),
+            torch.arange(g['n_id'].size(0)),
             torch.arange(out_dim)
         )
 
         label = pd.DataFrame({
             'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
-            'node_idx': g['cent_n_id'][index_ptr[:, 1]].data.cpu().numpy(),
+            'node_idx': g['n_id'][index_ptr[:, 1]].data.cpu().numpy(),
             'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
             'val': y[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
         })
 
         pred = pd.DataFrame({
             'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
-            'node_idx': g['cent_n_id'][index_ptr[:, 1]].data.cpu().numpy(),
+            'node_idx': g['n_id'][index_ptr[:, 1]].data.cpu().numpy(),
             'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
             'val': y_hat[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
         })

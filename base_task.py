@@ -545,7 +545,6 @@ class BasePytorchTask(ABC):
         self.model.zero_grad()
         self.model.train()
         self.build_summary_writer()  # build summary writer for tensorboard
-        self.train_dataloader = self.build_train_dataloader()
         self._set_fitting_state()
 
         # user-defined preparations
@@ -569,6 +568,7 @@ class BasePytorchTask(ABC):
         # for epoch in trange(self._passed_epoch, self.config.max_epochs, desc='Epoch'):
         for epoch in range(self._passed_epoch, self.config.max_epochs):
             bar_desc = "Epoch {}".format(epoch+1)
+            self.train_dataloader = self.build_train_dataloader(epoch=epoch+1)
             if self.in_distributed_mode:
                 bar_desc = "{} (Rank {})".format(bar_desc, self.global_rank)
                 if hasattr(self.train_dataloader.sampler, 'set_epoch'):
@@ -686,7 +686,7 @@ class BasePytorchTask(ABC):
     def val_eval(self, model=None, epoch=None):
         if model is None:
             model = self.model
-        dataloader = self.build_val_dataloader()
+        dataloader = self.build_val_dataloader(epoch=epoch)
         pbar_desc = 'Val'
         eval_out = self.eval(model, dataloader, self.val_step, self.val_epoch_end, 'Val', epoch=epoch)
         return eval_out
@@ -694,7 +694,7 @@ class BasePytorchTask(ABC):
     def test_eval(self, model=None, epoch=None):
         if model is None:
             model = self.model
-        dataloader = self.build_test_dataloader()
+        dataloader = self.build_test_dataloader(epohc=epoch)
         eval_out = self.eval(model, dataloader, self.test_step, self.test_epoch_end, 'Test', epoch=epoch)
         return eval_out
 

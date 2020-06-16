@@ -122,10 +122,7 @@ class MyGATConv(PyG.MessagePassing):
 
     def forward(self, x, edge_index, edge_weight=None, size=None):
         """"""
-        x = (
-            torch.matmul(x[0], self.weight_n),
-            torch.matmul(x[1], self.weight_n),
-        )
+        x = torch.matmul(x, self.weight_n)
 
         if len(edge_weight.shape) == 1:
             edge_weight = edge_weight.unsqueeze(dim=-1)
@@ -134,7 +131,7 @@ class MyGATConv(PyG.MessagePassing):
 
         return self.propagate(edge_index, size=size, x=x, edge_weight=edge_weight)
 
-    def message(self, edge_index_i, x_i, x_j, edge_weight):
+    def message(self, x_i, x_j, edge_weight):
         x_i = torch.matmul(x_i, self.u)
         x_j = torch.matmul(x_j, self.v)
 
@@ -143,7 +140,6 @@ class MyGATConv(PyG.MessagePassing):
         return x_j * gate
 
     def update(self, aggr_out, x):
-        x = x[1]
         aggr_out = torch.matmul(x, self.u) + aggr_out
 
         if self.normalize == 'bn':
@@ -172,21 +168,14 @@ class GATNet(nn.Module):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
 
-        size = g['size']
-        res_n_id = g['res_n_id']
-
         # swap node to dim 0
         X = X.permute(1, 0, 2)
 
-        conv1 = self.conv1(
-            (X, X[res_n_id[0]]), edge_index[0], edge_weight=edge_weight[0], size=size[0]
-        )
+        conv1 = self.conv1(X, edge_index, edge_weight=edge_weight)
 
         X = F.leaky_relu(conv1)
 
-        conv2 = self.conv2(
-            (X, X[res_n_id[1]]), edge_index[1], edge_weight=edge_weight[1], size=size[1]
-        )
+        conv2 = self.conv2(X, edge_index, edge_weight=edge_weight)
 
         X = F.leaky_relu(conv2)
 
@@ -252,7 +241,7 @@ class SAGENet(nn.Module):
 
 
 class MyEGNNConv(PyG.MessagePassing):
-    def __init__(self, in_channels, out_channels, edge_channels=1, normalize='none', **kwargs):
+    def __init__(self, in_channels, out_channels, edge_channels, normalize='none', **kwargs):
         super(MyEGNNConv, self).__init__(aggr='add', **kwargs)
 
         self.in_channels = in_channels
@@ -342,20 +331,14 @@ class EGNNNet(nn.Module):
         edge_index = g['edge_index']
         edge_weight = g['edge_weight']
 
-        size = g['size']
-        n_id = g['n_id']
-        res_n_id = g['res_n_id']
-
         # swap node to dim 0
         X = X.permute(1, 0, 2)
 
-        X = self.conv1(
-            (X, X[res_n_id[0]]), edge_index[0], edge_feature=edge_weight[0].unsqueeze(-1), size=size[0], indices=n_id[0][res_n_id[0]])
+        X = self.conv1(X, edge_index, edge_feature=edge_weight.unsqueeze(1))
 
         X = F.leaky_relu(X)
 
-        X = self.conv2(
-            (X, X[res_n_id[1]]), edge_index[1], edge_feature=edge_weight[1].unsqueeze(-1), size=size[1], indices=n_id[1][res_n_id[1]])
+        X = self.conv2(X, edge_index, edge_feature=edge_weight.unsqueeze(1))
 
         X = F.leaky_relu(X)
         X = X.permute(1, 0, 2)
