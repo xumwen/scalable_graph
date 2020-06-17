@@ -75,7 +75,7 @@ class MetaSampler(object):
         
         node_visit[n_id] = 1
 
-        # eturn subgraph
+        # return subgraph
         node_mask[n_id] = True
         edge_mask = node_mask[row] & node_mask[col]
         e_id = np.where(edge_mask)[0]

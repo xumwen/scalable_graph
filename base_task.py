@@ -694,7 +694,7 @@ class BasePytorchTask(ABC):
     def test_eval(self, model=None, epoch=None):
         if model is None:
             model = self.model
-        dataloader = self.build_test_dataloader(epohc=epoch)
+        dataloader = self.build_test_dataloader(epoch=epoch)
         eval_out = self.eval(model, dataloader, self.test_step, self.test_epoch_end, 'Test', epoch=epoch)
         return eval_out
 
