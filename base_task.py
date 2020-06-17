@@ -616,6 +616,9 @@ class BasePytorchTask(ABC):
                 test_out = self.test_eval(epoch=epoch+1)
             else:
                 test_out = None
+            
+            # train policy
+            self.train_policy_step(self.model, self.policy)
 
             # dump checkpoints and model outputs
             self.dump(

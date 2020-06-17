@@ -23,6 +23,7 @@ from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_l
 from base_task import add_config_to_argparse, BaseConfig, BasePytorchTask, \
     LOSS_KEY, BAR_KEY, SCALAR_LOG_KEY, VAL_SCORE_KEY
 from meta_sampler import MetaSamplerDataset
+from ppo import PPO, MetaSampleEnv
 
 
 class STConfig(BaseConfig):
@@ -48,9 +49,10 @@ class STConfig(BaseConfig):
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
         self.rep_eval = 1  # do evaluation for multiple times
-        self.subgraph_nodes = 100 # num nodes of subgraph produced by meta sampler
+        self.subgraph_nodes = 50 # num nodes of subgraph produced by meta sampler
         self.hidden_size = 64 # node embedding size
         self.moving_avg = 0.98 # update node embedding with moving average to avoid value accumulation
+        self.state_size = self.hidden_size * 2 # state_size of ppo
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
@@ -83,6 +85,7 @@ class SpatialTemporalTask(BasePytorchTask):
 
         self.init_data()
         self.loss_func = nn.MSELoss()
+        self.policy = PPO(state_size=self.config.state_size)
 
         self.log('Config:\n{}'.format(
             json.dumps(self.config.to_dict(), ensure_ascii=False, indent=4)
@@ -143,13 +146,13 @@ class SpatialTemporalTask(BasePytorchTask):
         self.node_emb[n_id] = self.config.moving_avg * self.node_emb[n_id] + \
             (1 - self.config.moving_avg) * mean_node_emb
 
-    def make_sample_dataloader(self, X, y, batch_size, epoch, shuffle=False):
+    def make_sample_dataloader(self, X, y, policy, batch_size, epoch, shuffle=False):
         # return a data loader based on meta sampling
         dataset = MetaSamplerDataset(
-            X, y, self.config.num_nodes, self.node_emb,
-            self.edge_index, self.edge_weight, batch_size, 
-            self.config.subgraph_nodes, shuffle=shuffle,
-            random_sample=(epoch==1)
+            X, y, self.policy, self.config.num_nodes, 
+            self.node_emb, self.edge_index, self.edge_weight, 
+            batch_size, self.config.subgraph_nodes, 
+            shuffle=shuffle, random_sample=(epoch==1)
         )
 
         return DataLoader(dataset, batch_size=None)
@@ -274,6 +277,10 @@ class SpatialTemporalTask(BasePytorchTask):
 
     def test_epoch_end(self, outputs):
         return self.eval_epoch_end(outputs, 'test')
+    
+    def train_policy_step(self, model, policy):
+        env = MetaSampleEnv(model, self.val_input, self.val_target, self.node_emb, self.edge_index, self.edge_weight)
+        policy.train_step(env)
 
 
 if __name__ == '__main__':
