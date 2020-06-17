@@ -27,8 +27,8 @@ class MetaSampler(object):
         self.model = ActorDemo(state_size=self.state_size)
         # self.model = PPO()
     
-    def __get_init_nodes__(self, node_visit, num_init_nodes=10):
-        left_nodes = np.where(node_visit == 0)[0]
+    def __get_init_nodes__(self, num_init_nodes=10):
+        left_nodes = np.where(self.node_visit == 0)[0]
         if self.shuffle:
             np.random.shuffle(left_nodes)
         if len(left_nodes) <= num_init_nodes:
@@ -36,25 +36,33 @@ class MetaSampler(object):
             
         return left_nodes[:num_init_nodes]
 
-    def __produce_subgraph__(self, n_id, subgraph_nodes, node_visit):
+    def __produce_subgraph__(self, n_id, subgraph_nodes):
         row, col = self.edge_index
         node_mask = torch.zeros(self.num_nodes, dtype=torch.bool)
         edge_mask = torch.zeros(row.size(0), dtype=torch.bool)
         
         for i in range(self.sample_step):
+            # get 1-hop neighbor
             node_mask[n_id] = True
             torch.index_select(node_mask, 0, row, out=edge_mask)
             new_n_id = col[edge_mask].numpy()
-            neighbor_id = np.setdiff1d(new_n_id, n_id)
+            
+            # remove visited and cent nodes
+            tmp_node_mask = torch.zeros(self.num_nodes, dtype=torch.bool)
+            tmp_node_mask[new_n_id] = True
+            neighbor_id = np.where(tmp_node_mask & (node_mask==False) & (self.node_visit==False))[0]
 
             if self.random_sample:
                 # random sample to warm start without node_emb
-                num_left = subgraph_nodes - len(n_id)
-                if len(neighbor_id) >= num_left:
-                    np.random.shuffle(neighbor_id)
-                    sample_n_id = neighbor_id[:num_left]
+                if subgraph_nodes >= self.num_nodes - self.node_visit.sum():
+                    sample_n_id = np.where(self.node_visit == False)[0]
                 else:
-                    sample_n_id = neighbor_id
+                    num_left = subgraph_nodes - len(n_id)
+                    if len(neighbor_id) >= num_left:
+                        np.random.shuffle(neighbor_id)
+                        sample_n_id = neighbor_id[:num_left]
+                    else:
+                        sample_n_id = neighbor_id
             else:
                 # use ppo to take action
                 cent_emb = self.node_emb[n_id].sum(dim=0)
@@ -72,9 +80,8 @@ class MetaSampler(object):
             n_id = np.union1d(n_id, sample_n_id)
             if len(n_id) >= subgraph_nodes:
                 break
-        
-        node_visit[n_id] = 1
 
+        self.node_visit[n_id] = True
         # return subgraph
         node_mask[n_id] = True
         edge_mask = node_mask[row] & node_mask[col]
@@ -88,11 +95,11 @@ class MetaSampler(object):
 
     def __call__(self):
         r"""Returns a generator of subgraph"""
-        node_visit = np.zeros(self.num_nodes)
+        self.node_visit = torch.zeros(self.num_nodes, dtype=torch.bool)
         produce = self.__produce_subgraph__
-        while node_visit.sum() != self.num_nodes:
-            n_id =  self.__get_init_nodes__(node_visit)
-            yield produce(n_id, self.subgraph_nodes, node_visit)
+        while self.node_visit.sum() != self.num_nodes:
+            n_id =  self.__get_init_nodes__()
+            yield produce(n_id, self.subgraph_nodes)
 
 
 class MetaSamplerDataset(IterableDataset):
