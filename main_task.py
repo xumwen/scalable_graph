@@ -50,6 +50,7 @@ class STConfig(BaseConfig):
         self.rep_eval = 1  # do evaluation for multiple times
         self.subgraph_nodes = 100 # num nodes of subgraph produced by meta sampler
         self.hidden_size = 64 # node embedding size
+        self.moving_avg = 0.98 # update node embedding with moving average to avoid value accumulation
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
@@ -136,6 +137,11 @@ class SpatialTemporalTask(BasePytorchTask):
             self.config.num_edges / self.config.num_nodes))
         
         self.node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
+    
+    def update_node_embedding(self, n_id, node_emb):
+        mean_node_emb = node_emb.mean(dim=[0, 2]).to('cpu')
+        self.node_emb[n_id] = self.config.moving_avg * self.node_emb[n_id] + \
+            (1 - self.config.moving_avg) * mean_node_emb
 
     def make_sample_dataloader(self, X, y, batch_size, epoch, shuffle=False):
         # return a data loader based on meta sampling
@@ -195,7 +201,7 @@ class SpatialTemporalTask(BasePytorchTask):
         loss_i = loss.item()  # scalar loss
 
         # update node embedding for meta sampler
-        self.node_emb[g['n_id']] += node_emb.mean(dim=[0, 2]).to('cpu')
+        self.update_node_embedding(g['n_id'], node_emb)
 
         return {
             LOSS_KEY: loss,
@@ -208,7 +214,7 @@ class SpatialTemporalTask(BasePytorchTask):
 
         y_hat, node_emb = self.model(X, g)
         assert(y.size() == y_hat.size())
-        self.node_emb[g['n_id']] += node_emb.mean(dim=[0, 2]).to('cpu')
+        self.update_node_embedding(g['n_id'], node_emb)
 
         out_dim = y.size(-1)
 
