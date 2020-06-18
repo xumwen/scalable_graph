@@ -54,8 +54,11 @@ class MetaSampler(object):
 
         return neighbor_id
 
-    def neighbor_sample_by_random(self, n_id, neighbor_id):
-        # random sample to warm start without node_emb
+    def random_sample_left_nodes(self, n_id, neighbor_id):
+        """ 
+        Random sample to warm start without node_emb
+        and to avoid exceeding subgraph_nodes
+        """
         num_left = self.subgraph_nodes - len(n_id)
         if len(neighbor_id) >= num_left:
             np.random.shuffle(neighbor_id)
@@ -65,7 +68,12 @@ class MetaSampler(object):
         
         return sample_n_id
 
-    def neighbor_sample_by_action(self, neighbor_id, action):
+    def neighbor_sample(self, neighbor_id, action):
+        """ 
+        Neighbor sample calculate kl-divergence between
+        node distribution and action distribution
+        """
+
         # calculate kl-divergense to sample nodes
         action = self.rescale_action(action)
         mu1, sigma1 = action[0], action[1]
@@ -135,11 +143,11 @@ class MetaSampler(object):
         for i in range(self.sample_step):
             neighbor_id = self.get_neighbor(n_id)
             if self.random_sample:
-                sample_n_id = self.neighbor_sample_by_random(n_id, neighbor_id)
+                sample_n_id = self.random_sample_left_nodes(n_id, neighbor_id)
             else:
                 s = self.get_state(n_id, neighbor_id)
                 action, logp = self.policy.action(s)
-                sample_n_id = self.neighbor_sample_by_action(neighbor_id, action)
+                sample_n_id = self.neighbor_sample(neighbor_id, action)
             
             n_id = np.union1d(n_id, sample_n_id)
             if len(n_id) >= self.subgraph_nodes:

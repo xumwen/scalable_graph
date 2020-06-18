@@ -252,8 +252,10 @@ class SpatialTemporalTask(BasePytorchTask):
     def train_ppo_step(self, model):
         env = MetaSampleEnv(
             model, self.val_input, self.val_target, 
-            self.config.num_nodes, self.node_emb, self.edge_index, 
-            self.edge_weight, self.config.subgraph_nodes
+            self.config.num_nodes, self.node_emb, 
+            self.edge_index, self.edge_weight, 
+            self.config.subgraph_nodes, self.config.batch_size,
+            self.device
         )
         self.ppo.train_step(env)
 

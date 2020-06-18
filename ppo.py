@@ -3,9 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Normal
+from torch.utils.data import DataLoader
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 from meta_sampler import MetaSampler, MetaSamplerDataset
 
@@ -43,7 +45,7 @@ class Memory:
 
 
 class MetaSampleEnv():
-    def __init__(self, model, X, y, num_nodes, node_emb, edge_index, edge_weight, subgraph_nodes):
+    def __init__(self, model, X, y, num_nodes, node_emb, edge_index, edge_weight, subgraph_nodes, batch_size, device):
         self.model = model
         self.X = X
         self.y = y
@@ -52,6 +54,10 @@ class MetaSampleEnv():
         self.edge_index = edge_index
         self.edge_weight = edge_weight
         self.subgraph_nodes = subgraph_nodes
+        self.batch_size = batch_size
+        self.device = device
+
+        self.loss_func = nn.MSELoss()
     
     def reset(self):
         self.node_visit = torch.zeros(self.num_nodes, dtype=torch.bool)
@@ -66,11 +72,15 @@ class MetaSampleEnv():
     
     def get_init_state(self):
         done = False
-        if self.num_nodes - self.meta_sampler.node_visit.sum() <= self.subgraph_nodes:
+        unvisited_nodes_num = self.num_nodes - self.meta_sampler.node_visit.sum()
+        if unvisited_nodes_num <= self.subgraph_nodes:
             # last subgraph
             self.n_id = np.where(self.meta_sampler.node_visit == False)[0]
-            self.neighbor_id = n_id
+            self.neighbor_id = self.n_id
             done = True
+            
+            subgraph = self.meta_sampler.__produce_subgraph_by_nodes__(self.n_id)
+            self.meta_sampler.subgraphs.append(subgraph)
         else:
             self.n_id = self.meta_sampler.get_init_nodes()
             self.neighbor_id = self.meta_sampler.get_neighbor(self.n_id)
@@ -80,13 +90,19 @@ class MetaSampleEnv():
         return s, done
     
     def step(self, action):
-        sample_n_id = self.meta_sampler.neighbor_sample_by_action(self.neighbor_id, action)
-        self.n_id = np.union1d(self.n_id, sample_n_id)
+        sample_n_id = self.meta_sampler.neighbor_sample(self.neighbor_id, action)
+        # avoid over subgraph_nodes(always intend to sample all neighbors)
+        sample_n_id = self.meta_sampler.random_sample_left_nodes(self.n_id, sample_n_id)
 
+        self.n_id = np.union1d(self.n_id, sample_n_id)
         done = False
+
         if len(self.n_id) >= self.subgraph_nodes:
             self.neighbor_id = self.n_id
             done = True
+
+            subgraph = self.meta_sampler.__produce_subgraph_by_nodes__(self.n_id)
+            self.meta_sampler.subgraphs.append(subgraph)
         else:
             self.neighbor_id = self.meta_sampler.get_neighbor(self.n_id)
         
@@ -99,38 +115,79 @@ class MetaSampleEnv():
             return True
         return False
     
-    def make_dataloader(self, shuffle):
+    def make_dataloader(self):
         # return a data loader based on meta sampler
         dataset = MetaSamplerDataset(
             self.X, self.y, self.meta_sampler, self.num_nodes, 
             self.edge_index, self.edge_weight, 
-            self.batch_size, shuffle=shuffle
+            self.batch_size, shuffle=True
         )
 
         return DataLoader(dataset, batch_size=None)
 
-    def eval(self):
+    def eval(self, episode):
         # enter evaluation mode
         self.model.zero_grad()
         self.model.eval()
 
-        dataloader = self.make_dataloader(shuffle=True)
+        dataloader = self.make_dataloader()
+        pbar = tqdm(leave=True, dynamic_ncols=True)
+        pbar.reset(total=len(dataloader))
+        pbar.set_description(desc="Episode {}".format(episode))
 
         eval_outs = []
         for batch_idx, batch in enumerate(dataloader):
-            batch = batch.to(self.device)
+            batch = self.decorate_batch(batch)
 
             X, y, g, rows = batch
             with torch.no_grad():
                 y_hat, _ = self.model(X, g)
-
             assert(y.size() == y_hat.size())
-            batch_loss = nn.MSELoss(y, y_hat)
-            eval_outs.append(batch_loss)
 
-        eval_loss = eval_outs.mean()
+            batch_loss = self.loss_func(y, y_hat)
+            eval_outs.append(batch_loss)
+            self.process_bar(pbar, batch_loss.item(), inc=True)
+            
+
+        eval_loss = torch.stack(eval_outs).mean()
+        self.process_bar(pbar, eval_loss.item(), inc=False)
+        pbar.close()
 
         return eval_loss
+    
+    def process_bar(self, pbar, loss, inc=True):
+        bar_info = {'val_loss': loss}
+        pbar.set_postfix(**bar_info)
+
+        if inc:
+            pbar.update(n=1)
+    
+    def decorate_batch(self, batch):
+        # Decorate the input batch with a proper device
+        if isinstance(batch, torch.Tensor):
+            batch = batch.to(self.device)
+            return batch
+        elif isinstance(batch, dict):
+            for key, value in batch.items():
+                if isinstance(value, torch.Tensor):
+                    batch[key] = value.to(self.device)
+                elif isinstance(value, dict) or isinstance(value, list):
+                    batch[key] = self.decorate_batch(value)
+                # retain other value types in the batch dict
+            return batch
+        elif isinstance(batch, list):
+            new_batch = []
+            for value in batch:
+                if isinstance(value, torch.Tensor):
+                    new_batch.append(value.to(self.device))
+                elif isinstance(value, dict) or isinstance(value, list):
+                    new_batch.append(self.decorate_batch(value))
+                else:
+                    # retain other value types in the batch list
+                    new_batch.append(value)
+            return new_batch
+        else:
+            raise Exception('Unsupported batch type {}'.format(type(batch)))
     
 
 class ActorCritic(nn.Module):
@@ -138,6 +195,7 @@ class ActorCritic(nn.Module):
         super(ActorCritic, self).__init__()
         self.state_size = state_size
         self.build_actor()
+        self.build_critic()
 
     def build_actor(self):
         self.actor = nn.Sequential(
@@ -225,6 +283,9 @@ class PPO:
         return self.policy.action(state)
 
     def make_batch(self):
+        # TODO： chenge data format
+        # print("states:", self.memory.states)
+        # print("actions:", self.memory.actions)
         s = torch.FloatTensor(self.memory.states).to(self.device)
         a = torch.FloatTensor(self.memory.actions).to(self.device).unsqueeze(dim=1)
         r = torch.FloatTensor(self.memory.rewards).to(self.device).unsqueeze(dim=1)
@@ -274,7 +335,6 @@ class PPO:
             self.optimizer.step()
 
     def train_step(self, env):
-        print("Start train ppo...")
         for eid in range(nb_episodes):
             env.reset()
             action_cnt = 0
@@ -302,9 +362,9 @@ class PPO:
                     if done:
                         break
 
-            r = env.eval()
+            r = -env.eval(eid+1)
             for i in range(action_cnt):
                 self.memory.rewards.append(r)
             self.train()
             self.memory.clear_mem()
-            print('Reward in episode %d: %.2lf' % (eid, r))
+            print('Reward in episode %d: %.2lf' % (eid+1, r))
