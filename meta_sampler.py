@@ -10,8 +10,6 @@ from torch_geometric.data import Data
 import numpy as np
 import pandas as pd
 
-from ppo import PPO, ActorDemo
-
 
 class MetaSampler(object):
     def __init__(self, policy, num_nodes, node_emb, edge_index, subgraph_nodes, sample_step=2, shuffle=False, random_sample=False):
@@ -30,7 +28,7 @@ class MetaSampler(object):
         self.node_visit = torch.zeros(self.num_nodes, dtype=torch.bool)
         self.subgraphs = []
     
-    def __get_init_nodes__(self, num_init_nodes=10):
+    def get_init_nodes(self, num_init_nodes=10):
         left_nodes = np.where(self.node_visit == 0)[0]
         if self.shuffle:
             np.random.shuffle(left_nodes)
@@ -39,7 +37,7 @@ class MetaSampler(object):
             
         return left_nodes[:num_init_nodes]
 
-    def __get_neighbor__(self, n_id):
+    def get_neighbor(self, n_id):
         row, col = self.edge_index
         node_mask = torch.zeros(self.num_nodes, dtype=torch.bool)
         edge_mask = torch.zeros(row.size(0), dtype=torch.bool)
@@ -56,8 +54,20 @@ class MetaSampler(object):
 
         return neighbor_id
 
-    def neighbor_sample(self, neighbor_id, action):
+    def neighbor_sample_by_random(self, n_id, neighbor_id):
+        # random sample to warm start without node_emb
+        num_left = self.subgraph_nodes - len(n_id)
+        if len(neighbor_id) >= num_left:
+            np.random.shuffle(neighbor_id)
+            sample_n_id = neighbor_id[:num_left]
+        else:
+            sample_n_id = neighbor_id
+        
+        return sample_n_id
+
+    def neighbor_sample_by_action(self, neighbor_id, action):
         # calculate kl-divergense to sample nodes
+        action = self.rescale_action(action)
         mu1 = action[0]
         sigma1 = action[1]
         mu2 = self.node_emb[neighbor_id].mean(dim=1)
@@ -68,6 +78,31 @@ class MetaSampler(object):
         sample_n_id = neighbor_id[torch.bernoulli(weight) == 1]
 
         return sample_n_id
+    
+    def get_state(self, n_id, neighbor_id):
+        cent_emb = self.node_emb[n_id].sum(dim=0)
+        neighbor_emb = self.node_emb[neighbor_id].sum(dim=0)
+
+        state = torch.cat([cent_emb, neighbor_emb], dim=0)
+        return state
+    
+    def rescale_action(self, action):
+        mu = action[0]
+        sigma = action[1]
+
+        nodes_mu = self.node_emb.mean(dim=1)
+        mu_max = nodes_mu.max()
+        mu_min = nodes_mu.min()
+
+        nodes_sigma = self.node_emb.std(dim=1)
+        sigma_max = nodes_sigma.max()
+        sigma_min = nodes_sigma.min()
+
+        mu = np.tanh(mu) * (mu_max - mu_min) + (mu_max + mu_min) / 2
+        sigma = np.tanh(sigma) * (sigma_max - sigma_min) / 2 + (sigma_max + sigma_min) / 2
+
+        return [mu, sigma]
+
 
     def __produce_subgraph_by_nodes__(self, n_id):
         row, col = self.edge_index
@@ -90,26 +125,22 @@ class MetaSampler(object):
         return Data(edge_index=edge_index, n_id=n_id, e_id=e_id)
 
     def __produce_subgraph__(self):
-        if self.num_nodes - self.node_visit.sum() <= subgraph_nodes:
+        if self.num_nodes - self.node_visit.sum() <= self.subgraph_nodes:
             # last subgraph
             n_id = np.where(self.node_visit == False)[0]
             return self.__produce_subgraph_by_nodes__(n_id)
 
         # sample several steps
-        n_id = self.__get_init_nodes__()
+        n_id = self.get_init_nodes()
+
         for i in range(self.sample_step):
-            neighbor_id = self.__get_neighbor__(n_id)
+            neighbor_id = self.get_neighbor(n_id)
             if self.random_sample:
-                # random sample to warm start without node_emb
-                num_left = subgraph_nodes - len(n_id)
-                if len(neighbor_id) >= num_left:
-                    np.random.shuffle(neighbor_id)
-                    sample_n_id = neighbor_id[:num_left]
-                else:
-                    sample_n_id = neighbor_id
+                sample_n_id = self.neighbor_sample_by_random(n_id, neighbor_id)
             else:
+                s = self.get_state(n_id, neighbor_id)
                 action, logp = self.policy.action(s)
-                sample_n_id = self.neighbor_sample(neighbor_id, action)
+                sample_n_id = self.neighbor_sample_by_action(neighbor_id, action)
             
             n_id = np.union1d(n_id, sample_n_id)
             if len(n_id) >= self.subgraph_nodes:
@@ -124,23 +155,25 @@ class MetaSampler(object):
 
 
 class MetaSamplerDataset(IterableDataset):
-    def __init__(self, X, y, policy, num_nodes, node_emb, edge_index, edge_weight, 
-                batch_size, subgraph_nodes=200, shuffle=False, random_sample=False):
+    def __init__(self, X, y, meta_sampler, num_nodes, edge_index, 
+                edge_weight, batch_size, shuffle=False):
         self.X = X
         self.y = y
-        self.policy = policy
-        self.node_emb = node_emb
+        self.meta_sampler = meta_sampler
 
+        self.num_nodes = num_nodes
         self.edge_index = edge_index
         self.edge_weight = edge_weight
-        self.num_nodes = num_nodes
+        
         self.batch_size = batch_size
-        self.subgraph_nodes = subgraph_nodes
         self.shuffle = shuffle
-        self.random_sample = random_sample
-
-        self.meta_sampler = MetaSampler(policy, num_nodes, node_emb, edge_index, subgraph_nodes, shuffle=shuffle, random_sample=random_sample)
+        
+        self.sample_subgraph()
         self.length = self.get_length()
+
+    def sample_subgraph(self):
+        if len(self.meta_sampler.subgraphs) == 0:
+            self.meta_sampler()
 
     def get_subgraph(self, subgraph):
         g = {
@@ -154,10 +187,7 @@ class MetaSamplerDataset(IterableDataset):
 
     def __iter__(self):
         # need pre-sampled subgraphs to avoid length inconsistency
-        self.meta_sampler()
-
         for subgraph in self.meta_sampler.subgraphs:
-            print(subgraph.n_id)
             g = self.get_subgraph(subgraph)
             X, y = self.X[:, g['n_id']], self.y[:, g['n_id']]
             dataset_len = X.size(0)

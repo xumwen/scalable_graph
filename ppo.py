@@ -7,7 +7,7 @@ from torch.distributions import Normal
 import numpy as np
 import pandas as pd
 
-from meta_sampler import MetaSamplerDataset
+from meta_sampler import MetaSampler, MetaSamplerDataset
 
 
 NUM_INIT_NODES = 10
@@ -43,44 +43,99 @@ class Memory:
 
 
 class MetaSampleEnv():
-    def __init__(self, model, X, y, node_emb, edge_index, edge_weight):
+    def __init__(self, model, X, y, num_nodes, node_emb, edge_index, edge_weight, subgraph_nodes):
         self.model = model
         self.X = X
         self.y = y
+        self.num_nodes = num_nodes
         self.node_emb = node_emb
         self.edge_index = edge_index
         self.edge_weight = edge_weight
+        self.subgraph_nodes = subgraph_nodes
     
     def reset(self):
         self.node_visit = torch.zeros(self.num_nodes, dtype=torch.bool)
-        self.meta_dataloader = self.make_sample_dataloader(self.X, self.y)
-        self.meta_sampler = self.meta_dataloader.meta_sampler
+        self.meta_sampler = MetaSampler(None, self.num_nodes, self.node_emb, self.edge_index, self.subgraph_nodes, shuffle=True)
+    
+    def get_state(self):
+        cent_emb = self.node_emb[self.n_id].sum(dim=0)
+        neighbor_emb = self.node_emb[self.neighbor_id].sum(dim=0)
 
-    def make_sample_dataloader(self, X, y, shuffle=True):
-        # return a data loader based on meta sampling
+        state = torch.cat([cent_emb, neighbor_emb], dim=0)
+        return state
+    
+    def get_init_state(self):
+        done = False
+        if self.num_nodes - self.meta_sampler.node_visit.sum() <= self.subgraph_nodes:
+            # last subgraph
+            self.n_id = np.where(self.meta_sampler.node_visit == False)[0]
+            self.neighbor_id = n_id
+            done = True
+        else:
+            self.n_id = self.meta_sampler.get_init_nodes()
+            self.neighbor_id = self.meta_sampler.get_neighbor(self.n_id)
+        
+        s = self.get_state()
+
+        return s, done
+    
+    def step(self, action):
+        sample_n_id = self.meta_sampler.neighbor_sample_by_action(self.neighbor_id, action)
+        self.n_id = np.union1d(self.n_id, sample_n_id)
+
+        done = False
+        if len(self.n_id) >= self.subgraph_nodes:
+            self.neighbor_id = self.n_id
+            done = True
+        else:
+            self.neighbor_id = self.meta_sampler.get_neighbor(self.n_id)
+        
+        s_prime = self.get_state()
+
+        return s_prime, done
+    
+    def finish(self):
+        if self.meta_sampler.node_visit.sum() == self.num_nodes:
+            return True
+        return False
+    
+    def make_dataloader(self, shuffle):
+        # return a data loader based on meta sampler
         dataset = MetaSamplerDataset(
-            X, y, policy=None, num_nodes=self.node_emb.shape[0], 
-            node_emb=self.node_emb, self.edge_index, self.edge_weight, 
-            batch_size=32, subgraph_nodes=200, 
-            shuffle=shuffle
+            self.X, self.y, self.meta_sampler, self.num_nodes, 
+            self.edge_index, self.edge_weight, 
+            self.batch_size, shuffle=shuffle
         )
 
         return DataLoader(dataset, batch_size=None)
-    
-    def get_state(self):
-        return self.meta_sampler.__get_init_state__()
-    
-    def step(self, state, action):
-        return self.meta_sampler.step(state, action)
-    
+
     def eval(self):
-        loss = 1.0
-        return loss
+        # enter evaluation mode
+        self.model.zero_grad()
+        self.model.eval()
+
+        dataloader = self.make_dataloader(shuffle=True)
+
+        eval_outs = []
+        for batch_idx, batch in enumerate(dataloader):
+            batch = batch.to(self.device)
+
+            X, y, g, rows = batch
+            with torch.no_grad():
+                y_hat, _ = self.model(X, g)
+
+            assert(y.size() == y_hat.size())
+            batch_loss = nn.MSELoss(y, y_hat)
+            eval_outs.append(batch_loss)
+
+        eval_loss = eval_outs.mean()
+
+        return eval_loss
     
 
 class ActorCritic(nn.Module):
     def __init__(self, state_size):
-        super(ActorDemo, self).__init__()
+        super(ActorCritic, self).__init__()
         self.state_size = state_size
         self.build_actor()
 
@@ -118,7 +173,7 @@ class ActorCritic(nn.Module):
 
         return action, logprob.item()
 
-    def _build_critic(self):
+    def build_critic(self):
         # v network
         self.critic = nn.Sequential(
             nn.Linear(self.state_size, 64),
@@ -137,10 +192,10 @@ class ActorCritic(nn.Module):
 
         act_hid = self.actor(state)
 
-        mu_mean = self.mu_mean(act_hid)
-        mu_log_std = self.mu_log_std(act_hid)
-        sigma_mean = self.sigma_mean(act_hid)
-        sigma_log_std = self.sigma_log_std(act_hid)
+        action_mean = self.action_mean(act_hid)
+        action_log_std = self.action_log_std(act_hid)
+        mu_mean, sigma_mean = action_mean
+        sigma_mean, sigma_log_std = action_log_std
 
         mu_log_std = torch.clamp(mu_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
         mu_std = mu_log_std.exp()
@@ -220,23 +275,35 @@ class PPO:
             self.optimizer.step()
 
     def train_step(self, env):
+        print("Start train ppo...")
         for eid in range(nb_episodes):
-            running_reward = 0
             env.reset()
+            action_cnt = 0
 
-            for i in range(nb_steps):
-                a, logp = self.policy.select_action(s)
-                s_prime, r = env.step(a)
+            # get all subgraphs
+            while not env.finish():
+                s = env.get_init_state()
+                done = False
 
-                model.memory.states.append(s)
-                model.memory.actions.append(a)
-                model.memory.rewards.append(r)
-                model.memory.next_states.append(s_prime)
-                model.memory.logprobs.append(logp)
+                # get a subgraph step by step
+                for i in range(nb_steps):
+                    a, logp = self.policy.action(s)
+                    s_prime, done = env.step(a)
 
-                s = s_prime
-                running_reward += r
+                    self.memory.states.append(s)
+                    self.memory.actions.append(a)
+                    self.memory.next_states.append(s_prime)
+                    self.memory.logprobs.append(logp)
 
-            model.train()
-            model.memory.clear_mem()
-            print('Reward in episode {}'.format(running_reward))
+                    s = s_prime
+                    action_cnt += 1
+
+                    if done:
+                        break
+
+            r = env.eval()
+            for i in range(action_cnt):
+                self.memory.rewards.append(r)
+            self.train()
+            self.memory.clear_mem()
+            print('Reward in episode %d: %.2lf' % (eid, r))

@@ -585,6 +585,8 @@ class BasePytorchTask(ABC):
 
             # enter the training batch
             for batch_idx, batch in enumerate(self.train_dataloader):
+                # if batch_idx > 100:
+                #     break
                 batch = self.decorate_batch(batch)
                 # user-defined train step function
                 train_out = self.train_step(batch, batch_idx)
@@ -618,7 +620,7 @@ class BasePytorchTask(ABC):
                 test_out = None
             
             # train policy
-            self.train_policy_step(self.model, self.policy)
+            self.train_ppo_step(self.model)
 
             # dump checkpoints and model outputs
             self.dump(

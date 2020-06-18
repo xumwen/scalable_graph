@@ -22,7 +22,7 @@ from sandwich import Sandwich
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, load_pems_m_data, get_normalized_adj
 from base_task import add_config_to_argparse, BaseConfig, BasePytorchTask, \
     LOSS_KEY, BAR_KEY, SCALAR_LOG_KEY, VAL_SCORE_KEY
-from meta_sampler import MetaSamplerDataset
+from meta_sampler import MetaSampler, MetaSamplerDataset
 from ppo import PPO, MetaSampleEnv
 
 
@@ -43,12 +43,10 @@ class STConfig(BaseConfig):
 
         # per-gpu training batch size, real_batch_size = batch_size * num_gpus * grad_accum_steps
         self.batch_size = 32
-        self.val_batchsize = 32
         self.normalize = 'none'
         self.num_timesteps_input = 12  # the length of the input time-series sequence
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
-        self.rep_eval = 1  # do evaluation for multiple times
         self.subgraph_nodes = 50 # num nodes of subgraph produced by meta sampler
         self.hidden_size = 64 # node embedding size
         self.moving_avg = 0.98 # update node embedding with moving average to avoid value accumulation
@@ -85,7 +83,7 @@ class SpatialTemporalTask(BasePytorchTask):
 
         self.init_data()
         self.loss_func = nn.MSELoss()
-        self.policy = PPO(state_size=self.config.state_size)
+        self.ppo = PPO(state_size=self.config.state_size)
 
         self.log('Config:\n{}'.format(
             json.dumps(self.config.to_dict(), ensure_ascii=False, indent=4)
@@ -147,33 +145,37 @@ class SpatialTemporalTask(BasePytorchTask):
             (1 - self.config.moving_avg) * mean_node_emb
 
     def make_sample_dataloader(self, X, y, policy, batch_size, epoch, shuffle=False):
-        # return a data loader based on meta sampling
+        meta_sampler = MetaSampler(
+            policy, self.config.num_nodes, self.node_emb, self.edge_index, 
+            self.config.subgraph_nodes, shuffle=shuffle, random_sample=(epoch==1)
+        )
+
+        # return a data loader based on meta sampler
         dataset = MetaSamplerDataset(
-            X, y, self.policy, self.config.num_nodes, 
-            self.node_emb, self.edge_index, self.edge_weight, 
-            batch_size, self.config.subgraph_nodes, 
-            shuffle=shuffle, random_sample=(epoch==1)
+            X, y, meta_sampler, self.config.num_nodes, 
+            self.edge_index, self.edge_weight, 
+            self.config.batch_size, shuffle=shuffle
         )
 
         return DataLoader(dataset, batch_size=None)
 
     def build_train_dataloader(self, epoch):
         return self.make_sample_dataloader(
-            self.training_input, self.training_target, 
+            self.training_input, self.training_target, self.ppo.policy,
             self.config.batch_size, epoch, shuffle=True
         )
 
     def build_val_dataloader(self, epoch):
         # use a small batch size to test the normalization methods (BN/LN)
         return self.make_sample_dataloader(
-            self.val_input, self.val_target, 
-            self.config.val_batchsize, epoch, shuffle=True
+            self.val_input, self.val_target, self.ppo.policy,
+            self.config.batch_size, epoch, shuffle=True
         )
 
     def build_test_dataloader(self, epoch):
         return self.make_sample_dataloader(
-            self.test_input, self.test_target, 
-            self.config.val_batchsize, epoch, shuffle=True
+            self.test_input, self.test_target, self.ppo.policy,
+            self.config.batch_size, epoch, shuffle=True
         )
 
     def build_optimizer(self, model):
@@ -219,44 +221,12 @@ class SpatialTemporalTask(BasePytorchTask):
         assert(y.size() == y_hat.size())
         self.update_node_embedding(g['n_id'], node_emb)
 
-        out_dim = y.size(-1)
+        loss = self.loss_func(y, y_hat)
 
-        index_ptr = torch.cartesian_prod(
-            torch.arange(rows.size(0)),
-            torch.arange(g['n_id'].size(0)),
-            torch.arange(out_dim)
-        )
-
-        label = pd.DataFrame({
-            'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
-            'node_idx': g['n_id'][index_ptr[:, 1]].data.cpu().numpy(),
-            'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
-            'val': y[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
-        })
-
-        pred = pd.DataFrame({
-            'row_idx': rows[index_ptr[:, 0]].data.cpu().numpy(),
-            'node_idx': g['n_id'][index_ptr[:, 1]].data.cpu().numpy(),
-            'feat_idx': index_ptr[:, 2].data.cpu().numpy(),
-            'val': y_hat[index_ptr.t().chunk(3)].squeeze(dim=0).data.cpu().numpy()
-        })
-
-        pred = pred.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-        label = label.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-
-        return {
-            'label': label,
-            'pred': pred,
-        }
+        return {'loss': loss}
 
     def eval_epoch_end(self, outputs, tag):
-        pred = pd.concat([x['pred'] for x in outputs], axis=0)
-        label = pd.concat([x['label'] for x in outputs], axis=0)
-
-        pred = pred.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-        label = label.groupby(['row_idx', 'node_idx', 'feat_idx']).mean()
-
-        loss = np.mean((pred.values - label.values) ** 2)
+        loss = torch.stack([x['loss'] for x in outputs]).mean()
 
         out = {
             BAR_KEY: {'{}_loss'.format(tag): loss},
@@ -278,9 +248,13 @@ class SpatialTemporalTask(BasePytorchTask):
     def test_epoch_end(self, outputs):
         return self.eval_epoch_end(outputs, 'test')
     
-    def train_policy_step(self, model, policy):
-        env = MetaSampleEnv(model, self.val_input, self.val_target, self.node_emb, self.edge_index, self.edge_weight)
-        policy.train_step(env)
+    def train_ppo_step(self, model):
+        env = MetaSampleEnv(
+            model, self.val_input, self.val_target, 
+            self.config.num_nodes, self.node_emb, self.edge_index, 
+            self.edge_weight, self.config.subgraph_nodes
+        )
+        self.ppo.train_step(env)
 
 
 if __name__ == '__main__':
