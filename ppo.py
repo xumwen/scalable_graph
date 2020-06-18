@@ -154,8 +154,8 @@ class ActorCritic(nn.Module):
 
         action_mean = self.action_mean(act_hid)
         action_log_std = self.action_log_std(act_hid)
-        mu_mean, sigma_mean = action_mean
-        sigma_mean, sigma_log_std = action_log_std
+        mu_mean, sigma_mean = action_mean[0], action_mean[1]
+        mu_log_std, sigma_log_std = action_log_std[0], action_log_std[1]
 
         mu_log_std = torch.clamp(mu_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
         mu_std = mu_log_std.exp()
@@ -194,8 +194,8 @@ class ActorCritic(nn.Module):
 
         action_mean = self.action_mean(act_hid)
         action_log_std = self.action_log_std(act_hid)
-        mu_mean, sigma_mean = action_mean
-        sigma_mean, sigma_log_std = action_log_std
+        mu_mean, sigma_mean = action_mean[0], action_mean[1]
+        sigma_mean, sigma_log_std = action_log_std[0], action_log_std[1]
 
         mu_log_std = torch.clamp(mu_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
         mu_std = mu_log_std.exp()
@@ -205,8 +205,7 @@ class ActorCritic(nn.Module):
         mu_normal = Normal(mu_mean, mu_std)
         sigma_normal = Normal(sigma_mean, sigma_std)
 
-        mu = action[0]
-        sigma = action[1]
+        mu, sigma = action[0], action[1]
         action_logprob = mu_normal.log_prob(mu) * sigma_normal.log_prob(sigma)
 
         return state_value, action_logprob
@@ -220,17 +219,17 @@ class PPO:
         self.memory = Memory()
 
     def select_action(self, state):
-        state = torch.from_numpy(state).float().to(device)
+        state = torch.from_numpy(state).float().to(self.device)
         # make batch dim
         state = state.unsqueeze(dim=0)
         return self.policy.action(state)
 
     def make_batch(self):
-        s = torch.FloatTensor(self.memory.states).to(device)
-        a = torch.FloatTensor(self.memory.actions).to(device).unsqueeze(dim=1)
-        r = torch.FloatTensor(self.memory.rewards).to(device).unsqueeze(dim=1)
-        s_prime = torch.FloatTensor(self.memory.next_states).to(device)
-        logp = torch.FloatTensor(self.memory.logprobs).to(device).\
+        s = torch.FloatTensor(self.memory.states).to(self.device)
+        a = torch.FloatTensor(self.memory.actions).to(self.device).unsqueeze(dim=1)
+        r = torch.FloatTensor(self.memory.rewards).to(self.device).unsqueeze(dim=1)
+        s_prime = torch.FloatTensor(self.memory.next_states).to(self.device)
+        logp = torch.FloatTensor(self.memory.logprobs).to(self.device).\
             unsqueeze(dim=1)
 
         return s, a, r, s_prime, logp
@@ -252,7 +251,7 @@ class PPO:
                 advantage = gamma * lambda_ * advantage + delta_t[0]
                 advantage_list.append([advantage])
             advantage_list.reverse()
-            advantage = torch.FloatTensor(advantage_list).to(device)
+            advantage = torch.FloatTensor(advantage_list).to(self.device)
 
             ratio = torch.exp(a_logprob - logp)
 
@@ -282,8 +281,10 @@ class PPO:
 
             # get all subgraphs
             while not env.finish():
-                s = env.get_init_state()
                 done = False
+                s, done = env.get_init_state()
+                if done:
+                    break
 
                 # get a subgraph step by step
                 for i in range(nb_steps):

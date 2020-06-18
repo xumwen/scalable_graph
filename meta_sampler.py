@@ -68,8 +68,7 @@ class MetaSampler(object):
     def neighbor_sample_by_action(self, neighbor_id, action):
         # calculate kl-divergense to sample nodes
         action = self.rescale_action(action)
-        mu1 = action[0]
-        sigma1 = action[1]
+        mu1, sigma1 = action[0], action[1]
         mu2 = self.node_emb[neighbor_id].mean(dim=1)
         sigma2 = self.node_emb[neighbor_id].std(dim=1)
 
@@ -87,8 +86,8 @@ class MetaSampler(object):
         return state
     
     def rescale_action(self, action):
-        mu = action[0]
-        sigma = action[1]
+        # rescale action to get a sample distribution close to nodes_emb distribution
+        mu, sigma = action[0], action[1]
 
         nodes_mu = self.node_emb.mean(dim=1)
         mu_max = nodes_mu.max()

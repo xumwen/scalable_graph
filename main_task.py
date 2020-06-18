@@ -227,6 +227,7 @@ class SpatialTemporalTask(BasePytorchTask):
 
     def eval_epoch_end(self, outputs, tag):
         loss = torch.stack([x['loss'] for x in outputs]).mean()
+        loss = loss.item()
 
         out = {
             BAR_KEY: {'{}_loss'.format(tag): loss},
