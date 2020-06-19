@@ -105,7 +105,7 @@ class MetaSampler(object):
         sigma_max = nodes_sigma.max()
         sigma_min = nodes_sigma.min()
 
-        mu = np.tanh(mu) * (mu_max - mu_min) + (mu_max + mu_min) / 2
+        mu = np.tanh(mu) * (mu_max - mu_min) / 2 + (mu_max + mu_min) / 2
         sigma = np.tanh(sigma) * (sigma_max - sigma_min) / 2 + (sigma_max + sigma_min) / 2
 
         return [mu, sigma]
