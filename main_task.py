@@ -30,7 +30,7 @@ class STConfig(BaseConfig):
     def __init__(self):
         super(STConfig, self).__init__()
         # 1. Reset base config variables:
-        self.max_epochs = 200
+        self.max_epochs = 100
         self.early_stop_epochs = 20
 
         # 2. set spatial-temporal config variables:
@@ -83,11 +83,13 @@ class SpatialTemporalTask(BasePytorchTask):
 
         self.init_data()
         self.loss_func = nn.MSELoss()
-        self.ppo = PPO(state_size=self.config.state_size)
 
         self.log('Config:\n{}'.format(
             json.dumps(self.config.to_dict(), ensure_ascii=False, indent=4)
         ))
+    
+    def init_ppo(self):
+        self.ppo = PPO(state_size=self.config.state_size, device=self.device)
 
     def init_data(self, data_dir=None):
         if data_dir is None:
@@ -143,6 +145,7 @@ class SpatialTemporalTask(BasePytorchTask):
         mean_node_emb = node_emb.mean(dim=[0, 2]).to('cpu')
         self.node_emb[n_id] = self.config.moving_avg * self.node_emb[n_id] + \
             (1 - self.config.moving_avg) * mean_node_emb
+        # print("node_emb mean:", self.node_emb.mean().item())
 
     def make_sample_dataloader(self, X, y, policy, batch_size, epoch, shuffle=False):
         meta_sampler = MetaSampler(
@@ -280,6 +283,7 @@ if __name__ == '__main__':
     task.set_random_seed()
     net = WrapperNet(task.config)
     task.init_model_and_optimizer(net)
+    task.init_ppo()
     task.load_pretrain_ckpt()
 
     if not task.config.skip_train:

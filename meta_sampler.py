@@ -75,14 +75,19 @@ class MetaSampler(object):
         """
 
         # calculate kl-divergense to sample nodes
+        # print("action before rescale:", action)
         action = self.rescale_action(action)
+        # print("action after rescale:", action)
         mu1, sigma1 = action[0], action[1]
         mu2 = self.node_emb[neighbor_id].mean(dim=1)
         sigma2 = self.node_emb[neighbor_id].std(dim=1)
 
         kl_div = (sigma2 / sigma1).log() + (sigma1**2 + (mu1 - mu2)**2) / (2 * sigma2**2) - 0.5
+        # print("kl_div:", kl_div)
         weight = torch.exp(-kl_div)
+        # print("weight:", weight)
         sample_n_id = neighbor_id[torch.bernoulli(weight) == 1]
+        # print("sample_num:", len(sample_n_id))
 
         return sample_n_id
     
@@ -91,7 +96,7 @@ class MetaSampler(object):
         neighbor_emb = self.node_emb[neighbor_id].sum(dim=0)
 
         state = torch.cat([cent_emb, neighbor_emb], dim=0)
-        return state
+        return state.detach()
     
     def rescale_action(self, action):
         # rescale action to get a sample distribution close to nodes_emb distribution
@@ -109,7 +114,6 @@ class MetaSampler(object):
         sigma = np.tanh(sigma) * (sigma_max - sigma_min) / 2 + (sigma_max + sigma_min) / 2
 
         return [mu, sigma]
-
 
     def __produce_subgraph_by_nodes__(self, n_id):
         row, col = self.edge_index
@@ -148,6 +152,7 @@ class MetaSampler(object):
                 s = self.get_state(n_id, neighbor_id)
                 action, logp = self.policy.action(s)
                 sample_n_id = self.neighbor_sample(neighbor_id, action)
+                sample_n_id = self.random_sample_left_nodes(n_id, sample_n_id)
             
             n_id = np.union1d(n_id, sample_n_id)
             if len(n_id) >= self.subgraph_nodes:

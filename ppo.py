@@ -35,6 +35,7 @@ class Memory:
         self.rewards = []
         self.next_states = []
         self.logprobs = []
+        self.done_lst = []
 
     def clear_mem(self):
         del self.states[:]
@@ -42,6 +43,7 @@ class Memory:
         del self.rewards[:]
         del self.next_states[:]
         del self.logprobs[:]
+        del self.done_lst[:]
 
 
 class MetaSampleEnv():
@@ -68,7 +70,7 @@ class MetaSampleEnv():
         neighbor_emb = self.node_emb[self.neighbor_id].sum(dim=0)
 
         state = torch.cat([cent_emb, neighbor_emb], dim=0)
-        return state
+        return state.detach().cpu()
     
     def get_init_state(self):
         done = False
@@ -225,7 +227,7 @@ class ActorCritic(nn.Module):
 
         mu = mu_normal.sample()
         sigma = sigma_normal.sample()
-        logprob = mu_normal.log_prob(mu) * sigma_normal.log_prob(sigma)
+        logprob = mu_normal.log_prob(mu) + sigma_normal.log_prob(sigma)
 
         action = [mu.item(), sigma.item()]
 
@@ -253,7 +255,7 @@ class ActorCritic(nn.Module):
         action_mean = self.action_mean(act_hid)
         action_log_std = self.action_log_std(act_hid)
         mu_mean, sigma_mean = action_mean[0], action_mean[1]
-        sigma_mean, sigma_log_std = action_log_std[0], action_log_std[1]
+        mu_log_std, sigma_log_std = action_log_std[0], action_log_std[1]
 
         mu_log_std = torch.clamp(mu_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
         mu_std = mu_log_std.exp()
@@ -264,45 +266,46 @@ class ActorCritic(nn.Module):
         sigma_normal = Normal(sigma_mean, sigma_std)
 
         mu, sigma = action[0], action[1]
-        action_logprob = mu_normal.log_prob(mu) * sigma_normal.log_prob(sigma)
+        # log(pq) = log(p) + log(q)
+        action_logprob = mu_normal.log_prob(mu) + sigma_normal.log_prob(sigma)
 
         return state_value, action_logprob
 
 
 class PPO:
-    def __init__(self, state_size):
+    def __init__(self, state_size, device):
         self.policy = ActorCritic(state_size)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=1e-3)
 
         self.memory = Memory()
-
-    def select_action(self, state):
-        state = torch.from_numpy(state).float().to(self.device)
-        # make batch dim
-        state = state.unsqueeze(dim=0)
-        return self.policy.action(state)
+        self.device = device
+        # self.policy.to(device)
 
     def make_batch(self):
-        # TODO： chenge data format
-        # print("states:", self.memory.states)
-        # print("actions:", self.memory.actions)
-        s = torch.FloatTensor(self.memory.states).to(self.device)
-        a = torch.FloatTensor(self.memory.actions).to(self.device).unsqueeze(dim=1)
+        # Data format
+        # state is list of tensor
+        # action is list of list
+        # others are list of single value
+        s = torch.stack(self.memory.states).to(self.device)
+        a = torch.FloatTensor(self.memory.actions).to(self.device)
         r = torch.FloatTensor(self.memory.rewards).to(self.device).unsqueeze(dim=1)
-        s_prime = torch.FloatTensor(self.memory.next_states).to(self.device)
-        logp = torch.FloatTensor(self.memory.logprobs).to(self.device).\
-            unsqueeze(dim=1)
+        s_prime = torch.stack(self.memory.next_states).to(self.device)
+        logp = torch.FloatTensor(self.memory.logprobs).to(self.device).unsqueeze(dim=1)
+        done_mask = torch.FloatTensor(self.memory.done_lst).to(self.device).unsqueeze(dim=1)
 
-        return s, a, r, s_prime, logp
+        return s, a, r, s_prime, logp, done_mask
 
     def train(self):
-        s, a, r, s_prime, logp = self.make_batch()
+        s, a, r, s_prime, logp, done_mask = self.make_batch()
+        self.policy.to(self.device)
 
         for i in range(nb_epoches):
             s_value, a_logprob = self.policy.evaluate(s, a)
+            # print("logp:", logp)
+            # print("a_logprob:", a_logprob)
             s_prime_value, _ = self.policy.evaluate(s_prime, None)
 
-            td_target = r + gamma * s_prime_value
+            td_target = r + gamma * s_prime_value * done_mask
             delta = td_target - s_value
             delta = delta.detach().cpu().numpy()
 
@@ -315,6 +318,7 @@ class PPO:
             advantage = torch.FloatTensor(advantage_list).to(self.device)
 
             ratio = torch.exp(a_logprob - logp)
+            # print("ratio:", ratio)
 
             surr1 = ratio * advantage
             surr2 = torch.clamp(
@@ -333,6 +337,8 @@ class PPO:
             self.optimizer.zero_grad()
             loss.mean().backward()
             self.optimizer.step()
+        
+        self.policy.cpu()
 
     def train_step(self, env):
         for eid in range(nb_episodes):
@@ -355,6 +361,8 @@ class PPO:
                     self.memory.actions.append(a)
                     self.memory.next_states.append(s_prime)
                     self.memory.logprobs.append(logp)
+                    done_mask = 0 if done else 1
+                    self.memory.done_lst.append(done_mask)
 
                     s = s_prime
                     action_cnt += 1
@@ -367,4 +375,4 @@ class PPO:
                 self.memory.rewards.append(r)
             self.train()
             self.memory.clear_mem()
-            print('Reward in episode %d: %.2lf' % (eid+1, r))
+            # print('Reward in episode %d: %.2lf' % (eid+1, r))
