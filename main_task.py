@@ -165,7 +165,7 @@ class SpatialTemporalTask(BasePytorchTask):
             (1 - self.config.moving_avg) * mean_node_emb
         # print("node_emb mean:", self.node_emb.mean().item())
 
-    def make_sample_dataloader(self, X, y, epoch, shuffle=True, use_dist_sampler=True, rep_eval=None):
+    def make_sample_dataloader(self, X, y, epoch, shuffle=True, use_dist_sampler=False, rep_eval=None):
         if self.config.graph_sampling == 'neighbor':
             dataset = NeighborSampleDataset(
                 X, y, self.edge_index, self.edge_weight, self.config.num_nodes, self.config.batch_size,
@@ -207,17 +207,20 @@ class SpatialTemporalTask(BasePytorchTask):
 
     def build_train_dataloader(self, epoch):
         return self.make_sample_dataloader(
-            self.training_input, self.training_target, epoch
+            self.training_input, self.training_target, 
+            epoch, use_dist_sampler=True
         )
 
     def build_val_dataloader(self, epoch):
         return self.make_sample_dataloader(
-            self.val_input, self.val_target, epoch
+            self.val_input, self.val_target, 
+            epoch, use_dist_sampler=False
         )
 
     def build_test_dataloader(self, epoch):
         return self.make_sample_dataloader(
-            self.test_input, self.test_target, epoch
+            self.test_input, self.test_target, 
+            epoch, use_dist_sampler=False
         )
 
     def build_optimizer(self, model):
