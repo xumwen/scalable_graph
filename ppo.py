@@ -159,6 +159,7 @@ class MetaSampleEnv():
         eval_loss = torch.stack(eval_outs).mean()
         self.process_bar(pbar, eval_loss.item(), inc=False)
         pbar.close()
+        self.model.train()
 
         return eval_loss
     
