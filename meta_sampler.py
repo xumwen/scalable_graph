@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+import torch.distributed as dist
 
 from torch.utils.data import IterableDataset
 from torch.distributions import Normal
@@ -168,7 +169,7 @@ class MetaSampler(object):
 
 class MetaSamplerDataset(IterableDataset):
     def __init__(self, X, y, meta_sampler, num_nodes, edge_index, 
-                edge_weight, batch_size, shuffle=False):
+                edge_weight, batch_size, shuffle=False, use_dist_sampler=False):
         self.X = X
         self.y = y
         self.meta_sampler = meta_sampler
@@ -180,6 +181,9 @@ class MetaSamplerDataset(IterableDataset):
         self.batch_size = batch_size
         self.shuffle = shuffle
         
+        # use 'epoch' as the random seed to shuffle data for distributed training
+        self.epoch = None
+
         self.sample_subgraph()
         self.length = self.get_length()
 
@@ -189,16 +193,21 @@ class MetaSamplerDataset(IterableDataset):
 
     def get_subgraph(self, subgraph):
         g = {
+            'type': 'subgraph',
             'edge_index': subgraph.edge_index,
             'edge_weight': self.edge_weight[subgraph.e_id],
             'cent_n_id': subgraph.n_id,
-            'e_id': subgraph.e_id,
-            'type': 'subgraph'
+            'e_id': subgraph.e_id
         }
 
         return g
 
     def __iter__(self):
+        if self.use_dist_sampler and dist.is_initialized():
+            # ensure that all processes share the same graph dataflow
+            # set seed as epoch for training, and rep for evaluation
+            torch.manual_seed(self.epoch)
+
         # need pre-sampled subgraphs to avoid length inconsistency
         for subgraph in self.meta_sampler.subgraphs:
             g = self.get_subgraph(subgraph)
@@ -206,7 +215,28 @@ class MetaSamplerDataset(IterableDataset):
             dataset_len = X.size(0)
             indices = list(range(dataset_len))
 
-            if self.shuffle:
+            if self.use_dist_sampler and dist.is_initialized():
+                # distributed sampler reference: torch.utils.data.distributed.DistributedSampler
+                if self.shuffle:
+                    # ensure that all processes share the same permutated indices
+                    tg = torch.Generator()
+                    tg.manual_seed(self.epoch)
+                    indices = torch.randperm(dataset_len, generator=tg).tolist()
+
+                world_size = dist.get_world_size()
+                node_rank = dist.get_rank()
+                num_samples_per_node = int(math.ceil(dataset_len * 1.0 / world_size))
+                total_size = world_size * num_samples_per_node
+
+                # add extra samples to make it evenly divisible
+                indices += indices[:(total_size - dataset_len)]
+                assert len(indices) == total_size
+
+                # get sub-batch for each process
+                # Node (rank=x) get [x, x+world_size, x+2*world_size, ...]
+                indices = indices[node_rank:total_size:world_size]
+                assert len(indices) == num_samples_per_node
+            elif self.shuffle:
                 np.random.shuffle(indices)
 
             num_batches = (len(indices) + self.batch_size -
@@ -220,11 +250,19 @@ class MetaSamplerDataset(IterableDataset):
         length = 0
 
         for _ in self.meta_sampler.subgraphs:
-            num_samples_per_node = self.X.size(0)
-            length += (num_samples_per_node +
-                    self.batch_size - 1) // self.batch_size
+            if self.use_dist_sampler and dist.is_initialized():
+                dataset_len = self.X.size(0)
+                world_size = dist.get_world_size()
+                num_samples_per_node = int(math.ceil(dataset_len * 1.0 / world_size))
+            else:
+                num_samples_per_node = self.X.size(0)
+            length += (num_samples_per_node + self.batch_size - 1) // self.batch_size
 
         return length
 
     def __len__(self):
         return self.length
+    
+    def set_epoch(self, epoch):
+        # self.set_epoch() will be called by BasePytorchTask on each epoch when using distributed training
+        self.epoch = epoch

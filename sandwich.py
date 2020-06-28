@@ -82,7 +82,7 @@ class Sandwich(nn.Module):
         :param A_hat: Normalized adjacency matrix.
         """
         if g['type'] == 'dataflow':
-            encoder_out, decoder_residual = self.gru1(X, g['n_id'])
+            encoder_out, decoder_residual = self.gru1(X, g['graph_n_id'])
         elif g['type'] == 'subgraph':
             encoder_out, decoder_residual = self.gru1(X, g['cent_n_id'])
         else:

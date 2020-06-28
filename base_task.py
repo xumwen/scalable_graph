@@ -544,6 +544,8 @@ class BasePytorchTask(ABC):
             self.init_model_and_optimizer(model)
         assert self.model is not None and self.optimizer is not None
 
+        self.model.zero_grad()
+        self.model.train()
         self.build_summary_writer()  # build summary writer for tensorboard
         self._set_fitting_state()
 
@@ -567,9 +569,6 @@ class BasePytorchTask(ABC):
 
         # for epoch in trange(self._passed_epoch, self.config.max_epochs, desc='Epoch'):
         for epoch in range(self._passed_epoch, self.config.max_epochs):
-            self.model.zero_grad()
-            self.model.train()
-
             bar_desc = "Epoch {}".format(epoch+1)
             self.train_dataloader = self.build_train_dataloader(epoch=epoch+1)
             if self.in_distributed_mode:

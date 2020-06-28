@@ -156,7 +156,8 @@ class SpatialTemporalTask(BasePytorchTask):
         self.log('Average degree: {:.3f}'.format(
             self.config.num_edges / self.config.num_nodes))
         
-        self.node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
+        if self.config.graph_sampling == "meta":
+            self.node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
     
     def update_node_embedding(self, n_id, node_emb):
         mean_node_emb = node_emb.mean(dim=[0, 2]).to('cpu')
@@ -164,7 +165,7 @@ class SpatialTemporalTask(BasePytorchTask):
             (1 - self.config.moving_avg) * mean_node_emb
         # print("node_emb mean:", self.node_emb.mean().item())
 
-    def make_sample_dataloader(self, X, y, epoch, shuffle=True, use_dist_sampler=False, rep_eval=None):
+    def make_sample_dataloader(self, X, y, epoch, shuffle=True, use_dist_sampler=True, rep_eval=None):
         if self.config.graph_sampling == 'neighbor':
             dataset = NeighborSampleDataset(
                 X, y, self.edge_index, self.edge_weight, self.config.num_nodes, self.config.batch_size,
@@ -196,7 +197,8 @@ class SpatialTemporalTask(BasePytorchTask):
             dataset = MetaSamplerDataset(
                 X, y, meta_sampler, self.config.num_nodes, 
                 self.edge_index, self.edge_weight, 
-                self.config.batch_size, shuffle=shuffle
+                self.config.batch_size, shuffle=shuffle,
+                use_dist_sampler = use_dist_sampler
             )
         else:
             raise Exception('Unsupported graph sampling type: {}'.format(self.config.graph_sampling))
