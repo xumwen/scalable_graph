@@ -68,7 +68,7 @@ class STConfig(BaseConfig):
         self.saint_sample_coverage = 50  # the number of counts per node to computation norm statistics
         self.use_saint_norm = True  # whether to use SAINT normalization tricks
         # for meta sample
-        self.subgraph_nodes = 50 # num nodes of subgraph produced by meta sampler
+        self.subgraph_nodes = 80 # num nodes of subgraph produced by meta sampler
         self.hidden_size = 64 # node embedding size
         self.moving_avg = 0.98 # update node embedding with moving average to avoid value accumulation
         self.state_size = self.hidden_size * 2 # state_size of ppo

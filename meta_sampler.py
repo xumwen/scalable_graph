@@ -10,6 +10,7 @@ from torch_geometric.data import Data
 
 import numpy as np
 import pandas as pd
+import math
 
 
 class MetaSampler(object):
@@ -180,6 +181,7 @@ class MetaSamplerDataset(IterableDataset):
         
         self.batch_size = batch_size
         self.shuffle = shuffle
+        self.use_dist_sampler = use_dist_sampler
         
         # use 'epoch' as the random seed to shuffle data for distributed training
         self.epoch = None
