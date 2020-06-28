@@ -191,8 +191,9 @@ class MetaSamplerDataset(IterableDataset):
         g = {
             'edge_index': subgraph.edge_index,
             'edge_weight': self.edge_weight[subgraph.e_id],
-            'n_id': subgraph.n_id,
-            'e_id': subgraph.e_id
+            'cent_n_id': subgraph.n_id,
+            'e_id': subgraph.e_id,
+            'type': 'subgraph'
         }
 
         return g
@@ -201,7 +202,7 @@ class MetaSamplerDataset(IterableDataset):
         # need pre-sampled subgraphs to avoid length inconsistency
         for subgraph in self.meta_sampler.subgraphs:
             g = self.get_subgraph(subgraph)
-            X, y = self.X[:, g['n_id']], self.y[:, g['n_id']]
+            X, y = self.X[:, g['cent_n_id']], self.y[:, g['cent_n_id']]
             dataset_len = X.size(0)
             indices = list(range(dataset_len))
 

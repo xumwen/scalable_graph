@@ -22,6 +22,7 @@ from sandwich import Sandwich
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, load_pems_m_data, get_normalized_adj
 from base_task import add_config_to_argparse, BaseConfig, BasePytorchTask, \
     LOSS_KEY, BAR_KEY, SCALAR_LOG_KEY, VAL_SCORE_KEY
+from dataset import NeighborSampleDataset, ClusterDataset, SAINTDataset
 from meta_sampler import MetaSampler, MetaSamplerDataset
 from ppo import PPO, MetaSampleEnv
 
@@ -35,9 +36,9 @@ class STConfig(BaseConfig):
 
         # 2. set spatial-temporal config variables:
         self.model = 'tgcn'  # choices: tgcn, stgcn, gwnet
-        self.dataset = 'pems'  # choices: metr, nyc, pems, pems-m
+        self.dataset = 'nyc'  # choices: metr, nyc, pems, pems-m
         # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
-        self.data_dir = './data/PEMS-D7'
+        self.data_dir = './data/NYC-Sharing-Bike'
         self.gcn = 'gat'  # choices: sage, gat, egnn
         self.rnn = 'gru'   # choices: gru, krnn
 
@@ -47,14 +48,30 @@ class STConfig(BaseConfig):
         self.num_timesteps_input = 12  # the length of the input time-series sequence
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
-        self.subgraph_nodes = 50 # num nodes of subgraph produced by meta sampler
-        self.hidden_size = 64 # node embedding size
-        self.moving_avg = 0.98 # update node embedding with moving average to avoid value accumulation
-        self.state_size = self.hidden_size * 2 # state_size of ppo
 
         # pretrained ckpt for krnn, use 'none' to ignore it
         self.pretrain_ckpt = 'none'
         self.use_residual = False
+
+        # graph sampling choices
+        self.graph_sampling = 'meta'  # choices: neighbor, cluster, saint, meta
+        # for neighbor sampling
+        self.neighbor_sampling_size = 5  # the number of neighbors to be sampled at each layer
+        self.neighbor_batch_size = 100  # the number of central nodes to be expanded at each batch
+        # for cluster gcn
+        self.cluster_part_num = 100  # the number of partitions to divide the graph
+        self.cluster_batch_size = 10  # the number of partitions to load at each batch
+        # for graph saint
+        self.saint_sample_type = 'random_walk'  # choices: random_walk, node
+        self.saint_batch_size = 100  # the number of initial nodes for random walk at each batch
+        self.saint_walk_length = 2  # the length of each random walk
+        self.saint_sample_coverage = 50  # the number of counts per node to computation norm statistics
+        self.use_saint_norm = True  # whether to use SAINT normalization tricks
+        # for meta sample
+        self.subgraph_nodes = 50 # num nodes of subgraph produced by meta sampler
+        self.hidden_size = 64 # node embedding size
+        self.moving_avg = 0.98 # update node embedding with moving average to avoid value accumulation
+        self.state_size = self.hidden_size * 2 # state_size of ppo
 
 
 def get_model_class(model):
@@ -147,38 +164,58 @@ class SpatialTemporalTask(BasePytorchTask):
             (1 - self.config.moving_avg) * mean_node_emb
         # print("node_emb mean:", self.node_emb.mean().item())
 
-    def make_sample_dataloader(self, X, y, policy, batch_size, epoch, shuffle=False):
-        meta_sampler = MetaSampler(
-            policy, self.config.num_nodes, self.node_emb, self.edge_index, 
-            self.config.subgraph_nodes, shuffle=shuffle, random_sample=(epoch==1)
-        )
+    def make_sample_dataloader(self, X, y, epoch, shuffle=True, use_dist_sampler=False, rep_eval=None):
+        if self.config.graph_sampling == 'neighbor':
+            dataset = NeighborSampleDataset(
+                X, y, self.edge_index, self.edge_weight, self.config.num_nodes, self.config.batch_size,
+                shuffle=shuffle, use_dist_sampler=use_dist_sampler, rep_eval=rep_eval,
+                neighbor_sampling_size=self.config.neighbor_sampling_size,
+                neighbor_batch_size=self.config.neighbor_batch_size)
+        elif self.config.graph_sampling == 'cluster':
+            dataset = ClusterDataset(
+                X, y, self.edge_index, self.edge_weight, self.config.num_nodes, self.config.batch_size,
+                shuffle=shuffle, use_dist_sampler=use_dist_sampler, rep_eval=rep_eval,
+                cluster_part_num=self.config.cluster_part_num,
+                cluster_batch_size=self.config.cluster_batch_size)
+        elif self.config.graph_sampling == 'saint':
+            dataset = SAINTDataset(
+                X, y, self.edge_index, self.edge_weight, self.config.num_nodes, self.config.batch_size,
+                shuffle=shuffle, use_dist_sampler=use_dist_sampler, rep_eval=rep_eval,
+                saint_sample_type=self.config.saint_sample_type,
+                saint_batch_size=self.config.saint_batch_size,
+                saint_walk_length=self.config.saint_walk_length,
+                saint_sample_coverage=self.config.saint_sample_coverage,
+                use_saint_norm=self.config.use_saint_norm)
+        elif self.config.graph_sampling == 'meta':
+            meta_sampler = MetaSampler(
+                self.ppo.policy, self.config.num_nodes, self.node_emb, self.edge_index, 
+                self.config.subgraph_nodes, shuffle=shuffle, random_sample=(epoch==1)
+            )
 
-        # return a data loader based on meta sampler
-        dataset = MetaSamplerDataset(
-            X, y, meta_sampler, self.config.num_nodes, 
-            self.edge_index, self.edge_weight, 
-            self.config.batch_size, shuffle=shuffle
-        )
+            # return a data loader based on meta sampler
+            dataset = MetaSamplerDataset(
+                X, y, meta_sampler, self.config.num_nodes, 
+                self.edge_index, self.edge_weight, 
+                self.config.batch_size, shuffle=shuffle
+            )
+        else:
+            raise Exception('Unsupported graph sampling type: {}'.format(self.config.graph_sampling))
 
         return DataLoader(dataset, batch_size=None)
 
     def build_train_dataloader(self, epoch):
         return self.make_sample_dataloader(
-            self.training_input, self.training_target, self.ppo.policy,
-            self.config.batch_size, epoch, shuffle=True
+            self.training_input, self.training_target, epoch
         )
 
     def build_val_dataloader(self, epoch):
-        # use a small batch size to test the normalization methods (BN/LN)
         return self.make_sample_dataloader(
-            self.val_input, self.val_target, self.ppo.policy,
-            self.config.batch_size, epoch, shuffle=True
+            self.val_input, self.val_target, epoch
         )
 
     def build_test_dataloader(self, epoch):
         return self.make_sample_dataloader(
-            self.test_input, self.test_target, self.ppo.policy,
-            self.config.batch_size, epoch, shuffle=True
+            self.test_input, self.test_target, epoch
         )
 
     def build_optimizer(self, model):
@@ -209,7 +246,8 @@ class SpatialTemporalTask(BasePytorchTask):
         loss_i = loss.item()  # scalar loss
 
         # update node embedding for meta sampler
-        self.update_node_embedding(g['n_id'], node_emb)
+        if self.config.graph_sampling == 'meta':
+            self.update_node_embedding(g['cent_n_id'], node_emb)
 
         return {
             LOSS_KEY: loss,
@@ -222,7 +260,6 @@ class SpatialTemporalTask(BasePytorchTask):
 
         y_hat, node_emb = self.model(X, g)
         assert(y.size() == y_hat.size())
-        self.update_node_embedding(g['n_id'], node_emb)
 
         loss = self.loss_func(y, y_hat)
 
@@ -283,7 +320,6 @@ if __name__ == '__main__':
     task.set_random_seed()
     net = WrapperNet(task.config)
     task.init_model_and_optimizer(net)
-    task.init_ppo()
     task.load_pretrain_ckpt()
 
     if not task.config.skip_train:

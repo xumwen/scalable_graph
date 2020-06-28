@@ -529,6 +529,8 @@ class BasePytorchTask(ABC):
     def init_model_and_optimizer(self, model):
         self.model = self.decorate_model(model)
         self.optimizer = self.build_optimizer(self.model)
+        if self.config.graph_sampling == 'meta':
+            self.init_ppo()
 
     def fit(self, model=None):
         """[summary]
@@ -619,7 +621,8 @@ class BasePytorchTask(ABC):
                 test_out = None
             
             # train policy
-            self.train_ppo_step(self.model)
+            if self.config.graph_sampling == 'meta':
+                self.train_ppo_step(self.model)
 
             # dump checkpoints and model outputs
             self.dump(
