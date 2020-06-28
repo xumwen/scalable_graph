@@ -66,6 +66,7 @@ class MetaSampleEnv():
         self.meta_sampler = MetaSampler(None, self.num_nodes, self.node_emb, self.edge_index, self.subgraph_nodes, shuffle=True)
     
     def get_state(self):
+        """get state vector of current subgraph"""
         cent_emb = self.node_emb[self.n_id].sum(dim=0)
         neighbor_emb = self.node_emb[self.neighbor_id].sum(dim=0)
 
@@ -73,6 +74,7 @@ class MetaSampleEnv():
         return state.detach().cpu()
     
     def get_init_state(self):
+        """Random init nodes and get neighbor, return state"""
         done = False
         unvisited_nodes_num = self.num_nodes - self.meta_sampler.node_visit.sum()
         if unvisited_nodes_num <= self.subgraph_nodes:
@@ -92,6 +94,7 @@ class MetaSampleEnv():
         return s, done
     
     def step(self, action):
+        """extend current subgraph with an action"""
         sample_n_id = self.meta_sampler.neighbor_sample(self.neighbor_id, action)
         # avoid over subgraph_nodes(always intend to sample all neighbors)
         sample_n_id = self.meta_sampler.random_sample_left_nodes(self.n_id, sample_n_id)
@@ -100,6 +103,7 @@ class MetaSampleEnv():
         done = False
 
         if len(self.n_id) >= self.subgraph_nodes:
+            # last subgraph
             self.neighbor_id = self.n_id
             done = True
 
@@ -113,12 +117,13 @@ class MetaSampleEnv():
         return s_prime, done
     
     def finish(self):
+        """subgraph nodes cover the whole graph"""
         if self.meta_sampler.node_visit.sum() == self.num_nodes:
             return True
         return False
     
     def make_dataloader(self):
-        # return a data loader based on meta sampler
+        """return a data loader based on meta sampler"""
         dataset = MetaSamplerDataset(
             self.X, self.y, self.meta_sampler, self.num_nodes, 
             self.edge_index, self.edge_weight, 
@@ -128,7 +133,7 @@ class MetaSampleEnv():
         return DataLoader(dataset, batch_size=None)
 
     def eval(self, episode):
-        # enter evaluation mode
+        """evaluation and return loss as reward"""
         self.model.zero_grad()
         self.model.eval()
 
@@ -279,13 +284,12 @@ class PPO:
 
         self.memory = Memory()
         self.device = device
-        # self.policy.to(device)
 
     def make_batch(self):
         # Data format
-        # state is list of tensor
-        # action is list of list
-        # others are list of single value
+        # state is a list of tensor
+        # action is a list of list
+        # others are a list of single value
         s = torch.stack(self.memory.states).to(self.device)
         a = torch.FloatTensor(self.memory.actions).to(self.device)
         r = torch.FloatTensor(self.memory.rewards).to(self.device).unsqueeze(dim=1)
@@ -301,8 +305,6 @@ class PPO:
 
         for i in range(nb_epoches):
             s_value, a_logprob = self.policy.evaluate(s, a)
-            # print("logp:", logp)
-            # print("a_logprob:", a_logprob)
             s_prime_value, _ = self.policy.evaluate(s_prime, None)
 
             td_target = r + gamma * s_prime_value * done_mask
@@ -318,7 +320,6 @@ class PPO:
             advantage = torch.FloatTensor(advantage_list).to(self.device)
 
             ratio = torch.exp(a_logprob - logp)
-            # print("ratio:", ratio)
 
             surr1 = ratio * advantage
             surr2 = torch.clamp(
@@ -330,9 +331,9 @@ class PPO:
             loss = -torch.min(surr1, surr2) + \
                 F.l1_loss(s_value, td_target.detach())
 
-            print('Loss part 1: ', -torch.min(surr1, surr2).mean().item())
-            print('Loss part 2: ', F.l1_loss(s_value, td_target.detach()).mean().item())
-            print('Loss sum: ', loss.mean().item())
+            # print('Loss part 1: ', -torch.min(surr1, surr2).mean().item())
+            # print('Loss part 2: ', F.l1_loss(s_value, td_target.detach()).mean().item())
+            # print('Loss sum: ', loss.mean().item())
 
             self.optimizer.zero_grad()
             loss.mean().backward()
@@ -375,4 +376,3 @@ class PPO:
                 self.memory.rewards.append(r)
             self.train()
             self.memory.clear_mem()
-            # print('Reward in episode %d: %.2lf' % (eid+1, r))
