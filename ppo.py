@@ -149,7 +149,6 @@ class MetaSampleEnv():
             X, y, g, rows = batch
             with torch.no_grad():
                 y_hat, _ = self.model(X, g)
-            assert(y.size() == y_hat.size())
 
             batch_loss = self.loss_func(y, y_hat)
             eval_outs.append(batch_loss)
@@ -159,6 +158,7 @@ class MetaSampleEnv():
         eval_loss = torch.stack(eval_outs).mean()
         self.process_bar(pbar, eval_loss.item(), inc=False)
         pbar.close()
+
         self.model.train()
 
         return eval_loss

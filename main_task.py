@@ -45,7 +45,8 @@ class STConfig(BaseConfig):
 
         # per-gpu training batch size, real_batch_size = batch_size * num_gpus * grad_accum_steps
         self.batch_size = 32
-        self.normalize = 'none'
+        self.hidden_size = 64 # node embedding size
+        self.normalize = 'none' # normalize after gnn
         self.num_timesteps_input = 12  # the length of the input time-series sequence
         self.num_timesteps_output = 3  # the length of the output time-series sequence
         self.lr = 1e-3  # the learning rate
@@ -70,7 +71,6 @@ class STConfig(BaseConfig):
         self.use_saint_norm = True  # whether to use SAINT normalization tricks
         # for meta sample
         self.subgraph_nodes = 70 # num nodes of subgraph produced by meta sampler
-        self.hidden_size = 16 # node embedding size
         self.moving_avg = 0.9 # update node embedding with moving average to avoid value accumulation
         self.state_size = self.hidden_size * 2 # state_size of ppo
 
@@ -163,7 +163,6 @@ class SpatialTemporalTask(BasePytorchTask):
     def update_epoch_node_embedding(self, n_id, node_emb):
         mean_node_emb = node_emb.mean(dim=[0, 2]).to('cpu')
         self.epoch_node_emb[n_id] += mean_node_emb
-        # print("node_emb mean:", self.node_emb.mean().item())
     
     def update_node_embedding(self):
         # normalize current epoch embedding
@@ -174,6 +173,7 @@ class SpatialTemporalTask(BasePytorchTask):
         # update node embedding by moving average
         self.node_emb = self.config.moving_avg * self.node_emb + \
             (1 - self.config.moving_avg) * self.epoch_node_emb
+        print("node_emb mean:", self.node_emb.mean().item())
         
         # reset epoch embedding
         self.epoch_node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)

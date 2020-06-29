@@ -2,7 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tgcn import GCNBlock
+from gcn import GCNBlock
 
 class TimeBlock(nn.Module):
     """
@@ -110,6 +110,9 @@ class STGCN(nn.Module):
         num_features=in_channels).
         :param A: Normalized adjacency matrix.
         """
+        # stgcn only support subgraph training
+        assert(g['type'] == 'subgraph')
+
         out1, _ = self.block1(X, g)
         out2, gcn_out = self.block2(out1, g)
         out3 = self.last_temporal(out2)
