@@ -76,19 +76,19 @@ class MetaSampler(object):
         node distribution and action distribution
         """
 
-        # calculate kl-divergense to sample nodes
-        # print("action before rescale:", action)
         action = self.rescale_action(action)
-        # print("action after rescale:", action)
+
+        # calculate kl-divergense to sample nodes
         mu1, sigma1 = action[0], action[1]
         mu2 = self.node_emb[neighbor_id].mean(dim=1)
         sigma2 = self.node_emb[neighbor_id].std(dim=1)
 
         kl_div = (sigma2 / sigma1).log() + (sigma1**2 + (mu1 - mu2)**2) / (2 * sigma2**2) - 0.5
-        # print("kl_div:", kl_div)
         weight = torch.exp(-kl_div)
-        # print("weight:", weight)
         sample_n_id = neighbor_id[torch.bernoulli(weight) == 1]
+
+        # print("kl_div:", kl_div)
+        # print("weight:", weight)
         # print("sample_num:", len(sample_n_id))
 
         return sample_n_id
