@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from tgcn import TGCN
+from stgcn import STGCN
 from sandwich import Sandwich
 
 from preprocess import generate_dataset, load_nyc_sharing_bike_data, load_metr_la_data, load_pems_d7_data, load_pems_m_data, get_normalized_adj
@@ -35,7 +36,7 @@ class STConfig(BaseConfig):
         self.early_stop_epochs = 20
 
         # 2. set spatial-temporal config variables:
-        self.model = 'tgcn'  # choices: tgcn, stgcn, gwnet
+        self.model = 'stgcn'  # choices: tgcn, stgcn, sandwich
         self.dataset = 'nyc'  # choices: metr, nyc, pems, pems-m
         # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
         self.data_dir = './data/NYC-Sharing-Bike'
@@ -68,15 +69,16 @@ class STConfig(BaseConfig):
         self.saint_sample_coverage = 50  # the number of counts per node to computation norm statistics
         self.use_saint_norm = True  # whether to use SAINT normalization tricks
         # for meta sample
-        self.subgraph_nodes = 80 # num nodes of subgraph produced by meta sampler
-        self.hidden_size = 64 # node embedding size
-        self.moving_avg = 0.98 # update node embedding with moving average to avoid value accumulation
+        self.subgraph_nodes = 70 # num nodes of subgraph produced by meta sampler
+        self.hidden_size = 16 # node embedding size
+        self.moving_avg = 0.9 # update node embedding with moving average to avoid value accumulation
         self.state_size = self.hidden_size * 2 # state_size of ppo
 
 
 def get_model_class(model):
     return {
         'tgcn': TGCN,
+        'stgcn': STGCN,
         'sandwich': Sandwich
     }.get(model)
 
@@ -107,6 +109,8 @@ class SpatialTemporalTask(BasePytorchTask):
     
     def init_ppo(self):
         self.ppo = PPO(state_size=self.config.state_size, device=self.device)
+        self.node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
+        self.epoch_node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
 
     def init_data(self, data_dir=None):
         if data_dir is None:
@@ -155,15 +159,24 @@ class SpatialTemporalTask(BasePytorchTask):
         self.log('Total nodes: {}'.format(self.config.num_nodes))
         self.log('Average degree: {:.3f}'.format(
             self.config.num_edges / self.config.num_nodes))
-        
-        if self.config.graph_sampling == "meta":
-            self.node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
     
-    def update_node_embedding(self, n_id, node_emb):
+    def update_epoch_node_embedding(self, n_id, node_emb):
         mean_node_emb = node_emb.mean(dim=[0, 2]).to('cpu')
-        self.node_emb[n_id] = self.config.moving_avg * self.node_emb[n_id] + \
-            (1 - self.config.moving_avg) * mean_node_emb
+        self.epoch_node_emb[n_id] += mean_node_emb
         # print("node_emb mean:", self.node_emb.mean().item())
+    
+    def update_node_embedding(self):
+        # normalize current epoch embedding
+        mean = self.epoch_node_emb.mean()
+        std = self.epoch_node_emb.std()
+        self.epoch_node_emb = (self.epoch_node_emb - mean) / (std + 1e-5)
+
+        # update node embedding by moving average
+        self.node_emb = self.config.moving_avg * self.node_emb + \
+            (1 - self.config.moving_avg) * self.epoch_node_emb
+        
+        # reset epoch embedding
+        self.epoch_node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
 
     def make_sample_dataloader(self, X, y, epoch, shuffle=True, use_dist_sampler=False, rep_eval=None):
         if self.config.graph_sampling == 'neighbor':
@@ -252,7 +265,7 @@ class SpatialTemporalTask(BasePytorchTask):
 
         # update node embedding for meta sampler
         if self.config.graph_sampling == 'meta':
-            self.update_node_embedding(g['cent_n_id'], node_emb)
+            self.update_epoch_node_embedding(g['cent_n_id'], node_emb)
 
         return {
             LOSS_KEY: loss,
@@ -295,6 +308,7 @@ class SpatialTemporalTask(BasePytorchTask):
         return self.eval_epoch_end(outputs, 'test')
     
     def train_ppo_step(self, model):
+        self.update_node_embedding()
         env = MetaSampleEnv(
             model, self.val_input, self.val_target, 
             self.config.num_nodes, self.node_emb, 

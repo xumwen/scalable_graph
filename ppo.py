@@ -127,7 +127,7 @@ class MetaSampleEnv():
         dataset = MetaSamplerDataset(
             self.X, self.y, self.meta_sampler, self.num_nodes, 
             self.edge_index, self.edge_weight, 
-            self.batch_size, shuffle=True
+            self.batch_size, shuffle=True, use_dist_sampler=False
         )
 
         return DataLoader(dataset, batch_size=None)
@@ -138,7 +138,7 @@ class MetaSampleEnv():
         self.model.eval()
 
         dataloader = self.make_dataloader()
-        pbar = tqdm(leave=True, dynamic_ncols=True)
+        pbar = tqdm(leave=False, dynamic_ncols=True)
         pbar.reset(total=len(dataloader))
         pbar.set_description(desc="Episode {}".format(episode))
 
