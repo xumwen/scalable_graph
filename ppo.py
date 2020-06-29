@@ -332,9 +332,9 @@ class PPO:
             loss = -torch.min(surr1, surr2) + \
                 F.l1_loss(s_value, td_target.detach())
 
-            # print('Loss part 1: ', -torch.min(surr1, surr2).mean().item())
-            # print('Loss part 2: ', F.l1_loss(s_value, td_target.detach()).mean().item())
-            # print('Loss sum: ', loss.mean().item())
+            print('Loss part 1: ', -torch.min(surr1, surr2).mean().item())
+            print('Loss part 2: ', F.l1_loss(s_value, td_target.detach()).mean().item())
+            print('Loss sum: ', loss.mean().item())
 
             self.optimizer.zero_grad()
             loss.mean().backward()

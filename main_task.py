@@ -173,7 +173,7 @@ class SpatialTemporalTask(BasePytorchTask):
         # update node embedding by moving average
         self.node_emb = self.config.moving_avg * self.node_emb + \
             (1 - self.config.moving_avg) * self.epoch_node_emb
-        print("node_emb mean:", self.node_emb.mean().item())
+        # print("node_emb mean:", self.node_emb.mean().item())
         
         # reset epoch embedding
         self.epoch_node_emb = torch.zeros(self.config.num_nodes, self.config.hidden_size)
