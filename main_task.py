@@ -36,10 +36,9 @@ class STConfig(BaseConfig):
         self.early_stop_epochs = 20
 
         # 2. set spatial-temporal config variables:
-        self.model = 'stgcn'  # choices: tgcn, stgcn, sandwich
+        self.model = 'sandwich'  # choices: tgcn, stgcn, sandwich
         self.dataset = 'nyc'  # choices: metr, nyc, pems, pems-m
-        # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
-        self.data_dir = './data/NYC-Sharing-Bike'
+        self.data_dir = './data/NYC-Sharing-Bike' # choices: ./data/METR-LA, ./data/NYC-Sharing-Bike
         self.gcn = 'gat'  # choices: sage, gat, egnn
         self.rnn = 'gru'   # choices: gru, krnn
 
@@ -57,6 +56,7 @@ class STConfig(BaseConfig):
 
         # graph sampling choices
         self.graph_sampling = 'meta'  # choices: neighbor, cluster, saint, meta
+        self.use_dist_sampler = False
         # for neighbor sampling
         self.neighbor_sampling_size = 5  # the number of neighbors to be sampled at each layer
         self.neighbor_batch_size = 100  # the number of central nodes to be expanded at each batch
@@ -159,7 +159,7 @@ class SpatialTemporalTask(BasePytorchTask):
         self.log('Total nodes: {}'.format(self.config.num_nodes))
         self.log('Average degree: {:.3f}'.format(
             self.config.num_edges / self.config.num_nodes))
-    
+
     def update_epoch_node_embedding(self, n_id, node_emb):
         mean_node_emb = node_emb.mean(dim=[0, 2]).to('cpu')
         self.epoch_node_emb[n_id] += mean_node_emb
@@ -221,7 +221,7 @@ class SpatialTemporalTask(BasePytorchTask):
     def build_train_dataloader(self, epoch):
         return self.make_sample_dataloader(
             self.training_input, self.training_target, 
-            epoch, use_dist_sampler=True
+            epoch, use_dist_sampler=self.config.use_dist_sampler
         )
 
     def build_val_dataloader(self, epoch):

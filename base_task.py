@@ -622,6 +622,7 @@ class BasePytorchTask(ABC):
             # train policy
             if self.config.graph_sampling == 'meta':
                 self.train_ppo_step(self.model)
+                print("Epoch %d ppo training succeed" % (epoch+1))
 
             # dump checkpoints and model outputs
             self.dump(
