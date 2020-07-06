@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 
 import numpy as np
 import pandas as pd
+import math
 from tqdm import tqdm
 
 from meta_sampler import MetaSampler, MetaSamplerDataset
@@ -212,32 +213,24 @@ class ActorCritic(nn.Module):
             nn.Linear(64, 32),
             nn.LeakyReLU()
         )
-        self.action_mean = nn.Linear(32, 2)
-        self.action_log_std = nn.Linear(32, 2)
+        self.action_mean = nn.Linear(32, 1)
+        self.action_log_std = nn.Linear(32, 1)
     
     def action(self, state):
         act_hid = self.actor(state)
 
         action_mean = self.action_mean(act_hid)
         action_log_std = self.action_log_std(act_hid)
-        mu_mean, sigma_mean = action_mean[0], action_mean[1]
-        mu_log_std, sigma_log_std = action_log_std[0], action_log_std[1]
 
-        mu_log_std = torch.clamp(mu_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
-        mu_std = mu_log_std.exp()
-        sigma_log_std = torch.clamp(sigma_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
-        sigma_std = sigma_log_std.exp()
+        action_log_std = torch.clamp(action_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
+        action_std = action_log_std.exp()
 
-        mu_normal = Normal(mu_mean, mu_std)
-        sigma_normal = Normal(sigma_mean, sigma_std)
+        normal = Normal(action_mean, action_std)
 
-        mu = mu_normal.sample()
-        sigma = sigma_normal.sample()
-        logprob = mu_normal.log_prob(mu) + sigma_normal.log_prob(sigma)
+        action = normal.sample()
+        logprob = normal.log_prob(action)
 
-        action = [mu.item(), sigma.item()]
-
-        return action, logprob.item()
+        return action.item(), logprob.item()
 
     def build_critic(self):
         # v network
@@ -260,20 +253,14 @@ class ActorCritic(nn.Module):
 
         action_mean = self.action_mean(act_hid)
         action_log_std = self.action_log_std(act_hid)
-        mu_mean, sigma_mean = action_mean[0], action_mean[1]
-        mu_log_std, sigma_log_std = action_log_std[0], action_log_std[1]
 
-        mu_log_std = torch.clamp(mu_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
-        mu_std = mu_log_std.exp()
-        sigma_log_std = torch.clamp(sigma_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
-        sigma_std = sigma_log_std.exp()
+        action_log_std = torch.clamp(action_log_std, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
+        action_std = action_log_std.exp()
 
-        mu_normal = Normal(mu_mean, mu_std)
-        sigma_normal = Normal(sigma_mean, sigma_std)
+        normal = Normal(action_mean, action_std)
 
-        mu, sigma = action[0], action[1]
-        # log(pq) = log(p) + log(q)
-        action_logprob = mu_normal.log_prob(mu) + sigma_normal.log_prob(sigma)
+        action = normal.sample()
+        action_logprob = normal.log_prob(action)
 
         return state_value, action_logprob
 
@@ -289,10 +276,9 @@ class PPO:
     def make_batch(self):
         # Data format
         # state is a list of tensor
-        # action is a list of list
         # others are a list of single value
         s = torch.stack(self.memory.states).to(self.device)
-        a = torch.FloatTensor(self.memory.actions).to(self.device)
+        a = torch.FloatTensor(self.memory.actions).to(self.device).unsqueeze(dim=1)
         r = torch.FloatTensor(self.memory.rewards).to(self.device).unsqueeze(dim=1)
         s_prime = torch.stack(self.memory.next_states).to(self.device)
         logp = torch.FloatTensor(self.memory.logprobs).to(self.device).unsqueeze(dim=1)
@@ -332,12 +318,12 @@ class PPO:
             loss = -torch.min(surr1, surr2) + \
                 F.l1_loss(s_value, td_target.detach())
 
-            # if loss.mean().item() > 100:
-            #     print('ratio: ', ratio)
-            #     print('advantage: ', advantage)
-            #     print('Loss part 1: ', -torch.min(surr1, surr2).mean().item())
-            #     print('Loss part 2: ', F.l1_loss(s_value, td_target.detach()).mean().item())
-            #     print('Loss sum: ', loss.mean().item())
+            if loss.mean().item() > 100:
+                print('ratio: ', ratio)
+                print('advantage: ', advantage)
+                print('Loss part 1: ', -torch.min(surr1, surr2).mean().item())
+                print('Loss part 2: ', F.l1_loss(s_value, td_target.detach()).mean().item())
+                print('Loss sum: ', loss.mean().item())
 
             self.optimizer.zero_grad()
             loss.mean().backward()

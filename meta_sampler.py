@@ -75,11 +75,11 @@ class MetaSampler(object):
         Neighbor sample calculate kl-divergence between
         node distribution and action distribution
         """
-
         action = self.rescale_action(action)
 
         # calculate kl-divergense to sample nodes
-        mu1, sigma1 = action[0], action[1]
+        mu1 = action
+        sigma1 = self.node_emb.std(dim=1).mean()
         mu2 = self.node_emb[neighbor_id].mean(dim=1)
         sigma2 = self.node_emb[neighbor_id].std(dim=1)
 
@@ -102,20 +102,15 @@ class MetaSampler(object):
     
     def rescale_action(self, action):
         # rescale action to get a sample distribution close to nodes_emb distribution
-        mu, sigma = action[0], action[1]
+        mu = action
 
         nodes_mu = self.node_emb.mean(dim=1)
         mu_max = nodes_mu.max()
         mu_min = nodes_mu.min()
 
-        nodes_sigma = self.node_emb.std(dim=1)
-        sigma_max = nodes_sigma.max()
-        sigma_min = nodes_sigma.min()
-
         mu = np.tanh(mu) * (mu_max - mu_min) / 2 + (mu_max + mu_min) / 2
-        sigma = np.tanh(sigma) * (sigma_max - sigma_min) / 2 + (sigma_max + sigma_min) / 2
 
-        return [mu, sigma]
+        return mu
 
     def __produce_subgraph_by_nodes__(self, n_id):
         row, col = self.edge_index
