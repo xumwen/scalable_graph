@@ -14,7 +14,8 @@ import math
 
 
 class MetaSampler(object):
-    def __init__(self, policy, num_nodes, node_emb, edge_index, subgraph_nodes, sample_step=2, shuffle=False, random_sample=False):
+    def __init__(self, policy, num_nodes, node_emb, edge_index, subgraph_nodes, sample_step=2, 
+                shuffle=False, random_sample=False, random_init=False):
         self.policy = policy
         self.num_nodes = num_nodes
         self.node_emb = node_emb
@@ -23,6 +24,7 @@ class MetaSampler(object):
         self.sample_step = sample_step
         self.shuffle = shuffle
         self.random_sample = random_sample
+        self.random_init = random_init
         self.subgraphs = []
         self.reset()
     
@@ -30,14 +32,41 @@ class MetaSampler(object):
         self.node_visit = torch.zeros(self.num_nodes, dtype=torch.bool)
         self.subgraphs = []
     
+    def get_most_connected_node(self, init_nodes, left_nodes):
+        row, col = self.edge_index
+        init_node_mask = torch.zeros(self.num_nodes, dtype=torch.bool)
+        left_node_mask = torch.zeros(self.num_nodes, dtype=torch.bool)
+        edge_mask = torch.zeros(row.size(0), dtype=torch.bool)
+
+        init_node_mask[init_nodes] = True
+        left_node_mask[left_nodes] = True
+
+        if len(init_nodes) == 0:
+            # from left to left
+            edge_mask = left_node_mask[row] & left_node_mask[col]
+        else:
+            # from left(not in init) to init
+            edge_mask = left_node_mask[row] & (init_node_mask[row] == False) & init_node_mask[col]
+        
+        valid_edge = self.edge_index[:, edge_mask]
+        
+        return torch.bincount(valid_edge[0]).argmax().item()
+
     def get_init_nodes(self, num_init_nodes=10):
         left_nodes = np.where(self.node_visit == 0)[0]
-        if self.shuffle:
-            np.random.shuffle(left_nodes)
         if len(left_nodes) <= num_init_nodes:
             return left_nodes
-            
-        return left_nodes[:num_init_nodes]
+        if self.shuffle:
+            np.random.shuffle(left_nodes)
+
+        if self.random_init:
+            return left_nodes[:num_init_nodes]
+        else:
+            # find n connected nodes
+            init_nodes = []
+            for i in range(num_init_nodes):
+                init_nodes.append(get_most_connected_node(init_nodes, left_nodes))
+            return np.array(init_nodes)
 
     def get_neighbor(self, n_id):
         row, col = self.edge_index
@@ -164,8 +193,8 @@ class MetaSampler(object):
 
 
 class MetaSamplerDataset(IterableDataset):
-    def __init__(self, X, y, meta_sampler, num_nodes, edge_index, 
-                edge_weight, batch_size, shuffle=False, use_dist_sampler=False):
+    def __init__(self, X, y, meta_sampler, num_nodes, edge_index, edge_weight, 
+                batch_size, shuffle=False, use_dist_sampler=False):
         self.X = X
         self.y = y
         self.meta_sampler = meta_sampler
